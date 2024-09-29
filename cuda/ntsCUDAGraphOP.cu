@@ -9,15 +9,16 @@
 
 #endif
 
-#if CUDA_ENABLE
-#define CHECK_CUDA_RESULT(N) {											\
-	cudaError_t result = N;												\
-	if (result != 0) {													\
-		printf("CUDA call on line %d returned error %d\n", __LINE__,	\
-			result);													\
-		exit(1);														\
-	} }
-#endif
+#define CHECK_CUSPARSE(func)                                                   \
+{                                                                              \
+    cusparseStatus_t status = (func);                                          \
+    if (status != CUSPARSE_STATUS_SUCCESS) {                                   \
+        printf("CUSPARSE API failed at file %s line %d with error: %s (%d)\n",         \
+               __FILE__, __LINE__, cusparseGetErrorString(status), status);    \
+       exit(EXIT_FAILURE);                                                     \
+    }                                                                          \
+}
+
 
 
 void* getDevicePointer(void* host_data_to_device){
@@ -56,6 +57,51 @@ void* cudaMallocGPU(long size_of_bytes){
 #endif  
 }
 
+
+void* cudaMallocGPU(long size_of_bytes, cudaStream_t cuda_stream){
+#if CUDA_ENABLE
+       void *data=NULL;
+       CHECK_CUDA_RESULT(cudaMallocAsync(&data,size_of_bytes, cuda_stream));
+//       printf("malloc finished\n");
+       return data;
+#else
+       printf("CUDA DISABLED cudaMallocGPU\n");
+       exit(0);   
+#endif  
+}
+
+void cudaFreeGPU(void * data, cudaStream_t cuda_stream)
+{
+#if CUDA_ENABLE
+       CHECK_CUDA_RESULT(cudaFreeAsync(data, cuda_stream));
+//       printf("malloc finished\n");
+#else
+       printf("CUDA DISABLED cudaMallocGPU\n");
+       exit(0);   
+#endif 
+}
+
+
+void cudaSetUsingDevice(int device_id){
+#if CUDA_ENABLE
+    CHECK_CUDA_RESULT(cudaSetDevice(device_id));
+#else
+    printf("CUDA DISABLED cudaSetDevice\n");
+       exit(0);
+#endif
+}
+
+
+void Cuda_Stream::setNewStream(cudaStream_t cudaStream) {
+#if CUDA_ENABLE
+    CHECK_CUDA_RESULT(cudaStreamDestroy(stream));
+    this->stream = cudaStream;
+
+#else
+    printf("CUDA DISABLED Cuda_Stream::getStream\n");
+    exit(0);
+#endif
+}
 
 Cuda_Stream::Cuda_Stream(){
 #if CUDA_ENABLE
@@ -96,7 +142,7 @@ void ResetDevice(){
 }
 void Cuda_Stream::CUDA_DEVICE_SYNCHRONIZE(){
 #if CUDA_ENABLE
-       cudaStreamSynchronize(stream);
+       CHECK_CUDA_RESULT(cudaStreamSynchronize(stream));
 #else
        printf("CUDA DISABLED Cuda_Stream::CUDA_DEVICE_SYNCHRONIZE\n");
        exit(0);   
@@ -184,6 +230,347 @@ void Cuda_Stream::Gather_By_Dst_From_Src(float* input,float* output,float* weigh
 #endif  
         
 }
+
+
+void Cuda_Stream::Gather_By_Dst_From_Src_with_index(float* input,float* output,float* weight_forward,//data 
+        VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,//graph
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+        VertexId_CUDA src_num, VertexId_CUDA edges,//for debug
+	 VertexId_CUDA batch_size,VertexId_CUDA feature_size,
+        VertexId_CUDA* input_index, bool with_weight){
+#if CUDA_ENABLE
+        if(with_weight){
+              aggregate_kernel_from_src_with_index_with_weight<float,VertexId_CUDA><<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
+                     row_indices, column_offset, input, output, weight_forward, 
+                     src_num, edges,//for debug
+                            src_start, dst_start, batch_size, feature_size, input_index);
+        }
+        else{
+                aggregate_kernel_from_src_with_index_without_weight<float,VertexId_CUDA><<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
+                        row_indices, column_offset, input, output, weight_forward, 
+                                src_start, dst_start, batch_size, feature_size, input_index);
+        }
+#else
+       printf("CUDA DISABLED Cuda_Stream::Gather_By_Dst_From_Src\n");
+       exit(0);   
+#endif  
+        
+}
+
+
+void Cuda_Stream::Gather_By_Dst_From_Src_with_index_spmm(float* input,float* output,float* weight_forward,//data 
+        VertexId_CUDA* row_indices,VertexId_CUDA *column_offset, VertexId_CUDA chunk_range_num,//graph
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+        VertexId_CUDA src_num, VertexId_CUDA edges,//for debug
+	 VertexId_CUDA batch_size,VertexId_CUDA feature_size,
+        VertexId_CUDA* input_index, bool with_weight){
+#if CUDA_ENABLE
+       void* dBuffer    = NULL;
+       size_t bufferSize = 0;
+
+       cusparseHandle_t     handle = NULL;
+       
+       CHECK_CUSPARSE(cusparseCreate(&handle));
+       CHECK_CUSPARSE(cusparseSetStream(handle, stream));
+
+       if(!with_weight){
+              // 0x0000803F 即1.0
+              CHECK_CUDA_RESULT(cudaMemsetAsync(&weight_forward, 0x0000803F, sizeof(float) * edges, stream));
+       }
+
+       cusparseSpMatDescr_t matA;
+       cusparseDnMatDescr_t matB, matC;
+
+       CHECK_CUSPARSE(cusparseCreateCsc(&matA, chunk_range_num, batch_size, edges, column_offset, row_indices, weight_forward, 
+                            CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+
+       CHECK_CUSPARSE(cusparseCreateDnMat(&matB, chunk_range_num, feature_size, feature_size, input, CUDA_R_32F, CUSPARSE_ORDER_ROW));
+       CHECK_CUSPARSE(cusparseCreateDnMat(&matC, batch_size, feature_size, feature_size, output, CUDA_R_32F, CUSPARSE_ORDER_ROW));
+
+       float alpha = 1.0f;
+       float beta  = 0.0f;
+
+       CHECK_CUSPARSE(cusparseSpMM_bufferSize(
+              handle,
+              CUSPARSE_OPERATION_TRANSPOSE,
+              CUSPARSE_OPERATION_NON_TRANSPOSE,
+              &alpha, matA, matB, &beta, matC, CUDA_R_32F,
+              CUSPARSE_SPMM_CSR_ALG2, &bufferSize));
+
+       CHECK_CUDA_RESULT(cudaMalloc(&dBuffer, bufferSize));
+
+       CHECK_CUSPARSE(cusparseSpMM(handle, CUSPARSE_OPERATION_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, 
+                            &alpha, matA, matB, &beta, matC, CUDA_R_32F, 
+                            CUSPARSE_SPMM_CSR_ALG2 , dBuffer));  //CUSPARSE_MM_ALG_DEFAULT, CUSPARSE_SPMM_CSR_ALG2 , CUSPARSE_SPMM_COO_ALG4
+
+       CHECK_CUDA_RESULT(cudaFree(dBuffer));
+
+       CHECK_CUSPARSE(cusparseDestroySpMat(matA));
+       CHECK_CUSPARSE(cusparseDestroyDnMat(matB));
+       CHECK_CUSPARSE(cusparseDestroyDnMat(matC));
+
+       CHECK_CUSPARSE(cusparseDestroy(handle));
+
+
+#else
+       printf("CUDA DISABLED Cuda_Stream::Gather_By_Dst_From_Src\n");
+       exit(0);   
+#endif  
+        
+}
+
+
+void Cuda_Stream::spmm_csc(float* input,float* output,float* weight_forward,//data 
+        VertexId_CUDA* row_indices,VertexId_CUDA *column_offset, VertexId_CUDA colum_num,//graph
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+        VertexId_CUDA edges,//for debug
+        VertexId_CUDA batch_size,VertexId_CUDA feature_size)
+{
+#if CUDA_ENABLE
+
+       // agg_from_src<float,VertexId_CUDA><<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
+       //               row_indices, column_offset, input, output, weight_forward, 
+       //                      src_start, dst_start, edges, batch_size, feature_size);
+       
+       // CHECK_CUDA_RESULT(cudaDeviceSynchronize());
+
+       void* dBuffer    = NULL;
+       size_t bufferSize = 0;
+
+       // check_output_1<<<1,1,0,stream>>>(output, input, column_offset, row_indices, weight_forward);
+       // check_output_3<<<1,1,0,stream>>>(weight_forward);
+       // check_output_4<<<1,1,0,stream>>>();
+       // check_output_2<<<1,1,0,stream>>>(output, input);
+       // assert(colum_num == batch_size);
+       // check_output_5<<<1,1,0,stream>>>(row_indices, edges, colum_num);
+
+       cusparseHandle_t     handle = NULL;
+       
+       CHECK_CUSPARSE(cusparseCreate(&handle));
+       CHECK_CUSPARSE(cusparseSetStream(handle, stream));
+
+       cusparseSpMatDescr_t matA;
+       cusparseDnMatDescr_t matB, matC;
+
+       CHECK_CUSPARSE(cusparseCreateCsc(&matA, batch_size, colum_num, edges, column_offset, row_indices, weight_forward, 
+                            CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+
+       CHECK_CUSPARSE(cusparseCreateDnMat(&matB, colum_num, feature_size, feature_size, input, CUDA_R_32F, CUSPARSE_ORDER_ROW));
+       CHECK_CUSPARSE(cusparseCreateDnMat(&matC, batch_size, feature_size, feature_size, output, CUDA_R_32F, CUSPARSE_ORDER_ROW));
+
+       float alpha = 1.0f;
+       float beta  = 0.0f;
+
+       CHECK_CUSPARSE(cusparseSpMM_bufferSize(
+              handle,
+              CUSPARSE_OPERATION_TRANSPOSE,
+              CUSPARSE_OPERATION_NON_TRANSPOSE,
+              &alpha, matA, matB, &beta, matC, CUDA_R_32F,
+              CUSPARSE_SPMM_CSR_ALG2, &bufferSize));
+
+       // CHECK_CUDA_RESULT(cudaMalloc(&dBuffer, bufferSize));
+       dBuffer =  cudaMallocGPU(bufferSize, stream);
+
+       CHECK_CUSPARSE(cusparseSpMM(handle, CUSPARSE_OPERATION_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, 
+                            &alpha, matA, matB, &beta, matC, CUDA_R_32F, 
+                            CUSPARSE_SPMM_CSR_ALG2 , dBuffer));  //CUSPARSE_MM_ALG_DEFAULT, CUSPARSE_SPMM_CSR_ALG2 , CUSPARSE_SPMM_COO_ALG4
+
+       // CHECK_CUDA_RESULT(cudaFree(dBuffer));
+       cudaFreeGPU(dBuffer, stream);
+
+       CHECK_CUSPARSE(cusparseDestroySpMat(matA));
+       CHECK_CUSPARSE(cusparseDestroyDnMat(matB));
+       CHECK_CUSPARSE(cusparseDestroyDnMat(matC));
+
+       CHECK_CUSPARSE(cusparseDestroy(handle));
+
+       // check_output<<<1,1,0,stream>>>(output, input, column_offset, row_indices, weight_forward);
+
+
+#else
+       printf("CUDA DISABLED Cuda_Stream::Gather_By_Dst_From_Src\n");
+       exit(0);   
+#endif  
+
+}
+
+void Cuda_Stream::spmm_csr(float* input,float* output,float* weight_forward,//data 
+        VertexId_CUDA* row_offset,VertexId_CUDA *colum_indices, VertexId_CUDA colum_num,//graph
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+        VertexId_CUDA edges,//for debug
+        VertexId_CUDA batch_size,VertexId_CUDA feature_size)
+{
+#if CUDA_ENABLE
+       void* dBuffer    = NULL;
+       size_t bufferSize = 0;
+
+       cusparseHandle_t     handle = NULL;
+       
+       CHECK_CUSPARSE(cusparseCreate(&handle));
+       CHECK_CUSPARSE(cusparseSetStream(handle, stream));
+
+       cusparseSpMatDescr_t matA;
+       cusparseDnMatDescr_t matB, matC;
+
+       CHECK_CUSPARSE(cusparseCreateCsr(&matA, batch_size, colum_num, edges, row_offset, colum_indices, weight_forward, 
+                            CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+
+       CHECK_CUSPARSE(cusparseCreateDnMat(&matB, colum_num, feature_size, feature_size, input, CUDA_R_32F, CUSPARSE_ORDER_ROW));
+       CHECK_CUSPARSE(cusparseCreateDnMat(&matC, batch_size, feature_size, feature_size, output, CUDA_R_32F, CUSPARSE_ORDER_ROW));
+
+       float alpha = 1.0f;
+       float beta  = 0.0f;
+
+       CHECK_CUSPARSE(cusparseSpMM_bufferSize(
+              handle,
+              CUSPARSE_OPERATION_TRANSPOSE,
+              CUSPARSE_OPERATION_NON_TRANSPOSE,
+              &alpha, matA, matB, &beta, matC, CUDA_R_32F,
+              CUSPARSE_SPMM_CSR_ALG2, &bufferSize));
+
+       CHECK_CUDA_RESULT(cudaMalloc(&dBuffer, bufferSize));
+
+       CHECK_CUSPARSE(cusparseSpMM(handle, CUSPARSE_OPERATION_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, 
+                            &alpha, matA, matB, &beta, matC, CUDA_R_32F, 
+                            CUSPARSE_SPMM_CSR_ALG2 , dBuffer));  //CUSPARSE_MM_ALG_DEFAULT, CUSPARSE_SPMM_CSR_ALG2 , CUSPARSE_SPMM_COO_ALG4
+
+       CHECK_CUDA_RESULT(cudaFree(dBuffer));
+
+       CHECK_CUSPARSE(cusparseDestroySpMat(matA));
+       CHECK_CUSPARSE(cusparseDestroyDnMat(matB));
+       CHECK_CUSPARSE(cusparseDestroyDnMat(matC));
+
+       CHECK_CUSPARSE(cusparseDestroy(handle));
+
+
+#else
+       printf("CUDA DISABLED Cuda_Stream::Gather_By_Dst_From_Src\n");
+       exit(0);   
+#endif  
+
+}
+
+void Cuda_Stream::Gather_By_Src_From_Dst_with_index_spmm(float* input, float* output, float* weight_backward, // data 
+        VertexId_CUDA* colum_indices, VertexId_CUDA* row_offset,VertexId_CUDA row_num, // graph
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+        VertexId_CUDA src_num, VertexId_CUDA edges, // for debug
+        VertexId_CUDA batch_size, VertexId_CUDA feature_size,
+        VertexId_CUDA* input_index, bool with_weight) {
+#if CUDA_ENABLE
+        // LOG_INFO("Gather_By_Src_From_Dst_with_index_spmm");
+        // printf("Gather_By_Src_From_Dst_with_index_spmm\n");
+        void* dBuffer    = NULL; // 用于CUSPARSE的缓冲区
+        size_t bufferSize = 0; // 缓冲区大小
+
+        cusparseHandle_t     handle = NULL; // CUSPARSE句柄
+
+        CHECK_CUSPARSE(cusparseCreate(&handle)); // 创建CUSPARSE句柄
+        CHECK_CUSPARSE(cusparseSetStream(handle, stream)); // 设置CUSPARSE句柄所使用的CUDA流
+
+        if (!with_weight) {
+            // 如果不需要权重，则将权重初始化为1.0
+            CHECK_CUDA_RESULT(cudaMemsetAsync(&weight_backward, 0x0000803F, sizeof(float) * edges, stream));
+        }
+
+        // 创建CUSPARSE稀疏矩阵描述符
+        cusparseSpMatDescr_t matA;
+        CHECK_CUSPARSE(cusparseCreateCsr(&matA, row_num, batch_size, edges, row_offset, colum_indices, weight_backward, 
+                                CUSPARSE_INDEX_32I, CUSPARSE_INDEX_32I, CUSPARSE_INDEX_BASE_ZERO, CUDA_R_32F));
+
+        // 创建CUSPARSE密集矩阵描述符
+        cusparseDnMatDescr_t matB, matC;
+        CHECK_CUSPARSE(cusparseCreateDnMat(&matB, row_num, feature_size, feature_size, input, CUDA_R_32F, CUSPARSE_ORDER_ROW));
+        CHECK_CUSPARSE(cusparseCreateDnMat(&matC, batch_size, feature_size, feature_size, output, CUDA_R_32F, CUSPARSE_ORDER_ROW));
+
+        float alpha = 1.0f; // 矩阵相乘的系数
+        float beta  = 0.0f;
+
+        // 计算SPMM所需的缓冲区大小
+        CHECK_CUSPARSE(cusparseSpMM_bufferSize(
+            handle,
+            CUSPARSE_OPERATION_TRANSPOSE,
+            CUSPARSE_OPERATION_NON_TRANSPOSE,
+            &alpha, matA, matB, &beta, matC, CUDA_R_32F,
+            CUSPARSE_SPMM_CSR_ALG2, &bufferSize));
+
+        // 分配缓冲区
+        CHECK_CUDA_RESULT(cudaMalloc(&dBuffer, bufferSize));
+
+        // 执行SPMM
+        CHECK_CUSPARSE(cusparseSpMM(handle, CUSPARSE_OPERATION_TRANSPOSE, CUSPARSE_OPERATION_NON_TRANSPOSE, 
+                            &alpha, matA, matB, &beta, matC, CUDA_R_32F, 
+                            CUSPARSE_SPMM_CSR_ALG2 , dBuffer));
+
+        // 释放缓冲区
+        CHECK_CUDA_RESULT(cudaFree(dBuffer));
+
+        // 销毁CUSPARSE描述符
+        CHECK_CUSPARSE(cusparseDestroySpMat(matA));
+        CHECK_CUSPARSE(cusparseDestroyDnMat(matB));
+        CHECK_CUSPARSE(cusparseDestroyDnMat(matC));
+
+        // 销毁CUSPARSE句柄
+        CHECK_CUSPARSE(cusparseDestroy(handle));
+
+#else
+        printf("CUDA DISABLED Cuda_Stream::Gather_By_Src_From_Dst_with_index\n");
+        exit(0);   
+#endif  
+        
+}
+
+
+
+
+void Cuda_Stream::Gather_By_Src_From_Dst_with_index(float* input,float* output,float* weight_backward,//data 
+        VertexId_CUDA* colum_indices,VertexId_CUDA *row_offset,//graph
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+        VertexId_CUDA src_num, VertexId_CUDA edges,//for debug
+	 VertexId_CUDA batch_size,VertexId_CUDA feature_size,
+        VertexId_CUDA* input_index, bool with_weight){
+#if CUDA_ENABLE
+        if(with_weight){
+              aggregate_kernel_from_dst_with_index_with_weight<float,VertexId_CUDA><<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
+                     colum_indices, row_offset, input, output, weight_backward, 
+                     src_num, edges,//for debug
+                            src_start, dst_start, batch_size, feature_size, input_index);
+        }
+        else{
+                aggregate_kernel_from_dst_with_index_without_weight<float,VertexId_CUDA><<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
+                        colum_indices, row_offset, input, output,  weight_backward, 
+                                src_start, dst_start, batch_size, feature_size, input_index);
+        }
+#else
+       printf("CUDA DISABLED Cuda_Stream::Gather_By_Src_From_Dst_with_index\n");
+       exit(0);   
+#endif  
+        
+}
+
+
+void Cuda_Stream::merge_data_grad_with_index(float* input,float* output,//data 
+	 VertexId_CUDA batch_size,VertexId_CUDA feature_size,
+        VertexId_CUDA* input_index){
+#if CUDA_ENABLE
+       merge_data_grad_kernel_with_index<float,VertexId_CUDA><<<CUDA_NUM_BLOCKS,CUDA_NUM_THREADS,0,stream>>>(
+              input, output,
+              batch_size, feature_size, input_index);
+#else
+       printf("CUDA DISABLED Cuda_Stream::merge_data_grad_with_index\n");
+       exit(0);   
+#endif  
+        
+}
+
+
+
+
 void Cuda_Stream::Gather_By_Dst_From_Src_Optim(float* input,float* output,float* weight_forward,//data 
         VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,
         VertexId_CUDA src_start, VertexId_CUDA src_end,

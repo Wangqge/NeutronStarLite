@@ -13,20 +13,20 @@ public:
   ValueType decay_rate;
   ValueType decay_epoch;
 
-  // graph
+  
   VertexSubset *active;
   Graph<Empty> *graph;
-  //std::vector<CSC_segment_pinned *> subgraphs;
-  // NN
+  
+  
   GNNDatum *gnndatum;
   NtsVar L_GT_C;
   NtsVar L_GT_G;
   NtsVar MASK;
   NtsVar MASK_gpu;
-  //GraphOperation *gt;
+  
   PartitionedGraph *partitioned_graph;
   nts::ctx::NtsContext *ctx;
-  // Variables
+  
   std::vector<Parameter *> P;
   std::vector<NtsVar> X;
   NtsVar F;
@@ -58,30 +58,30 @@ public:
     graph->init_gnnctx(graph->config->layer_string);
     graph->init_rtminfo();
     graph->rtminfo->set(graph->config);
-    //        graph->rtminfo->process_local = graph->config->process_local;
-    //        graph->rtminfo->reduce_comm = graph->config->process_local;
-    //        graph->rtminfo->lock_free=graph->config->lock_free;
-    //        graph->rtminfo->process_overlap = graph->config->overlap;
+    
+    
+    
+    
 
     graph->rtminfo->with_weight = true;
     graph->rtminfo->with_cuda = true;
     graph->rtminfo->copy_data = false;
   }
   void init_graph() {
-    // std::vector<CSC_segment_pinned *> csc_segment;
-//    graph->generate_COO();
-//    graph->reorder_COO_W2W();
-//    // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
-//    gt = new GraphOperation(graph, active);
-//    gt->GenerateGraphSegment(subgraphs, GPU_T, [&](VertexId src, VertexId dst) {
-//      return gt->norm_degree(src, dst);
-//    });
-//    double load_rep_time = 0;
-//    load_rep_time -= get_time();
-//    // graph->load_replicate3(graph->gnnctx->layer_size);
-//    load_rep_time += get_time();
-//    if (graph->partition_id == 0)
-//      printf("#load_rep_time=%lf(s)\n", load_rep_time);
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
     partitioned_graph=new PartitionedGraph(graph, active);
     partitioned_graph->GenerateAll([&](VertexId src, VertexId dst) {
       return nts::op::nts_norm_degree(graph,src, dst);
@@ -119,8 +119,8 @@ public:
       P.push_back(new Parameter(graph->gnnctx->layer_size[i],
                                 graph->gnnctx->layer_size[i + 1], alpha, beta1,
                                 beta2, epsilon, weight_decay));
-      //            P.push_back(new Parameter(graph->gnnctx->layer_size[i],
-      //                        graph->gnnctx->layer_size[i+1]));
+      
+      
     }
 
     torch::Device GPU(torch::kCUDA, 0);
@@ -133,8 +133,8 @@ public:
     drpmodel = torch::nn::Dropout(
         torch::nn::DropoutOptions().p(drop_rate).inplace(false));
 
-    //        F=graph->Nts->NewOnesTensor({graph->gnnctx->l_v_num,
-    //        graph->gnnctx->layer_size[0]},torch::DeviceType::CPU);
+    
+    
 
     F = graph->Nts->NewLeafTensor(
         gnndatum->local_feature,
@@ -148,7 +148,7 @@ public:
     X[0]=F.cuda().set_requires_grad(true);
   }
 
-  void Test(long s) { // 0 train, //1 eval //2 test
+  void Test(long s) { 
     NtsVar mask_train = MASK_gpu.eq(s);
     NtsVar all_train =
         X[graph->gnnctx->layer_size.size() - 1]
@@ -182,7 +182,7 @@ public:
   }
 
   void Loss() {
-    //  return torch::nll_loss(a,L_GT_C);
+    
     torch::Tensor a = X[graph->gnnctx->layer_size.size() - 1].log_softmax(1);
     torch::Tensor mask_train = MASK_gpu.eq(0);
     loss = torch::nll_loss(
@@ -194,7 +194,7 @@ public:
 
   void Update() {
     for (int i = 0; i < P.size(); i++) {
-      // P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
+      
       P[i]->learn_local_with_decay_Adam();
       P[i]->next();
     }
@@ -208,7 +208,7 @@ public:
 
     } else if (layer == 1) {
       y = P[layer]->forward(torch::relu(drpmodel(a)));
-      //   y = y.log_softmax(1); //CUDA
+      
     }
     return y;
   }
@@ -224,14 +224,14 @@ public:
         X[i]);
       X[i + 1] = ctx->runGraphOp<nts::op::ForwardSingleGPUfuseOp>(partitioned_graph,active,Y_i);
     }
-    // loss=X[graph->gnnctx->layer_size.size()-1];
+    
   }
 
-  /*GPU dist*/ void run() {
+  void run() {
     if (graph->partition_id == 0)
       printf("GNNmini::Engine[Dist.GPU.GCNimpl] running [%d] Epochs\n",
              iterations);
-    //      graph->print_info();
+    
 
     exec_time -= get_time();
     for (int i_i = 0; i_i < iterations; i_i++) {

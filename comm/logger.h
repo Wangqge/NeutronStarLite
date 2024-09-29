@@ -1,34 +1,11 @@
-/***************************************************************************
- *   Copyright (C) 2008 by H-Store Project                                 *
- *   Brown University                                                      *
- *   Massachusetts Institute of Technology                                 *
- *   Yale University                                                       *
- *                                                                         *
- *   This software may be modified and distributed under the terms         *
- *   of the MIT license.  See the LICENSE file for details.                *
- *                                                                         *
- ***************************************************************************/
 
 #ifndef HSTOREDEBUGLOG_H
 #define HSTOREDEBUGLOG_H
 
-/**
- * @file logger.h
- * @author sheep
- * @brief simple logger from bustub
- * @version 0.1
- * @date 2022-03-12
- *
- * @copyright Copyright (c) 2022
- *
- * just simple fprintf turn on/off by LOG_LEVEL macros
- * it should be convenient to use and won't affect runtime performance
- */
-
 #include <ctime>
 #include <string>
 
-// https://blog.galowicz.de/2016/02/20/short_file_macro/
+
 using cstr = const char *;
 
 static constexpr cstr PastLastSlash(cstr a, cstr b) {
@@ -45,7 +22,7 @@ static constexpr cstr PastLastSlash(cstr a) { return PastLastSlash(a, a); }
     sf__;                                                                      \
   })
 
-// Log levels.
+
 static constexpr int LOG_LEVEL_OFF = 1000;
 static constexpr int LOG_LEVEL_ERROR = 500;
 static constexpr int LOG_LEVEL_WARN = 400;
@@ -57,36 +34,36 @@ static constexpr int LOG_LEVEL_ALL = 0;
 #define LOG_LOG_TIME_FORMAT "%Y-%m-%d %H:%M:%S"
 #define LOG_OUTPUT_STREAM stdout
 
-// Compile Option
+
 #ifndef LOG_LEVEL
 #ifndef NDEBUG
-// #pragma message("LOG_LEVEL_DEBUG is used instead as DEBUG option is on.")
+
 static constexpr int LOG_LEVEL = LOG_LEVEL_DEBUG;
 #else
-// #pragma message("LOG_LEVEL_WARN is used instead as DEBUG option is off.")
+
 static constexpr int LOG_LEVEL = LOG_LEVEL_INFO;
 #endif
-// #pragma message("Give LOG_LEVEL compile option to overwrite the default
-// level.")
+
+
 #endif
 
-// For compilers which do not support __FUNCTION__
+
 #if !defined(__FUNCTION__) && !defined(__GNUC__)
 #define __FUNCTION__ ""
 #endif
 
 void OutputLogHeader(const char *file, int line, const char *func, int level);
 
-// Two convenient macros for debugging
-// 1. Logging macros.
-// 2. LOG_XXX_ENABLED macros. Use these to "eliminate" all the debug blocks from
-// release binary.
+
+
+
+
 #ifdef LOG_ERROR_ENABLED
 #undef LOG_ERROR_ENABLED
 #endif
 #if LOG_LEVEL <= LOG_LEVEL_ERROR
 #define LOG_ERROR_ENABLED
-// #pragma message("LOG_ERROR was enabled.")
+
 #define LOG_ERROR(...)                                                         \
   OutputLogHeader(__SHORT_FILE__, __LINE__, __FUNCTION__, LOG_LEVEL_ERROR);    \
   ::fprintf(LOG_OUTPUT_STREAM, __VA_ARGS__);                                   \
@@ -101,7 +78,7 @@ void OutputLogHeader(const char *file, int line, const char *func, int level);
 #endif
 #if LOG_LEVEL <= LOG_LEVEL_WARN
 #define LOG_WARN_ENABLED
-// #pragma message("LOG_WARN was enabled.")
+
 #define LOG_WARN(...)                                                          \
   OutputLogHeader(__SHORT_FILE__, __LINE__, __FUNCTION__, LOG_LEVEL_WARN);     \
   ::fprintf(LOG_OUTPUT_STREAM, __VA_ARGS__);                                   \
@@ -116,7 +93,7 @@ void OutputLogHeader(const char *file, int line, const char *func, int level);
 #endif
 #if LOG_LEVEL <= LOG_LEVEL_INFO
 #define LOG_INFO_ENABLED
-// #pragma message("LOG_INFO was enabled.")
+
 #define LOG_INFO(...)                                                          \
   OutputLogHeader(__SHORT_FILE__, __LINE__, __FUNCTION__, LOG_LEVEL_INFO);     \
   ::fprintf(LOG_OUTPUT_STREAM, __VA_ARGS__);                                   \
@@ -131,7 +108,7 @@ void OutputLogHeader(const char *file, int line, const char *func, int level);
 #endif
 #if LOG_LEVEL <= LOG_LEVEL_DEBUG
 #define LOG_DEBUG_ENABLED
-// #pragma message("LOG_DEBUG was enabled.")
+
 #define LOG_DEBUG(...)                                                         \
   OutputLogHeader(__SHORT_FILE__, __LINE__, __FUNCTION__, LOG_LEVEL_DEBUG);    \
   ::fprintf(LOG_OUTPUT_STREAM, __VA_ARGS__);                                   \
@@ -146,7 +123,7 @@ void OutputLogHeader(const char *file, int line, const char *func, int level);
 #endif
 #if LOG_LEVEL <= LOG_LEVEL_TRACE
 #define LOG_TRACE_ENABLED
-// #pragma message("LOG_TRACE was enabled.")
+
 #define LOG_TRACE(...)                                                         \
   OutputLogHeader(__SHORT_FILE__, __LINE__, __FUNCTION__, LOG_LEVEL_TRACE);    \
   ::fprintf(LOG_OUTPUT_STREAM, __VA_ARGS__);                                   \
@@ -156,13 +133,13 @@ void OutputLogHeader(const char *file, int line, const char *func, int level);
 #define LOG_TRACE(...) ((void)0)
 #endif
 
-// Output log message header in this format: [type] [file:line:function] time -
-// ex: [ERROR] [somefile.cpp:123:doSome()] 2008/07/06 10:00:00 -
+
+
 inline void OutputLogHeader(const char *file, int line, const char *func,
                             int level) {
   time_t t = ::time(nullptr);
-  tm *curTime = localtime(&t); // NOLINT
-  char time_str[32];           // FIXME
+  tm *curTime = localtime(&t); 
+  char time_str[32];           
   ::strftime(time_str, 32, LOG_LOG_TIME_FORMAT, curTime);
   const char *type;
   switch (level) {
@@ -184,7 +161,7 @@ inline void OutputLogHeader(const char *file, int line, const char *func,
   default:
     type = "UNKWN";
   }
-  // PAVLO: DO NOT CHANGE THIS
+  
   ::fprintf(LOG_OUTPUT_STREAM, "%s [%s:%d:%s] %s - ", time_str, file, line,
             func, type);
 }

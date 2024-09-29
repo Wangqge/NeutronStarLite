@@ -11,19 +11,19 @@ public:
   ValueType epsilon;
   ValueType decay_rate;
   ValueType decay_epoch;
-  // graph
+  
   VertexSubset *active;
-  // graph with no edge data
+  
   Graph<Empty> *graph;
-  //std::vector<CSC_segment_pinned *> subgraphs;
-  // NN
+  
+  
   GNNDatum *gnndatum;
   NtsVar L_GT_C;
   NtsVar L_GT_G;
   NtsVar MASK;
-  //GraphOperation *gt;
+  
   PartitionedGraph *partitioned_graph;
-  // Variables
+  
   std::vector<Parameter *> P;
   std::vector<NtsVar> X;
   nts::ctx::NtsContext* ctx;
@@ -54,7 +54,7 @@ public:
     active->fill();
 
     graph->init_gnnctx(graph->config->layer_string);
-    // rtminfo initialize
+    
     graph->init_rtminfo();
     graph->rtminfo->process_local = graph->config->process_local;
     graph->rtminfo->reduce_comm = graph->config->process_local;
@@ -70,7 +70,7 @@ public:
       return nts::op::nts_norm_degree(graph,src, dst);
     },CPU_T,true);
     graph->init_communicatior();
-    //cp = new nts::autodiff::ComputionPath(gt, subgraphs);
+    
     ctx=new nts::ctx::NtsContext();
   }
   void init_nn() {
@@ -85,7 +85,7 @@ public:
     beta2 = 0.999;
     epsilon = 1e-9;
     GNNDatum *gnndatum = new GNNDatum(graph->gnnctx, graph);
-    // gnndatum->random_generate();
+    
     if (0 == graph->config->feature_file.compare("random")) {
       gnndatum->random_generate();
     } else {
@@ -94,20 +94,20 @@ public:
                                        graph->config->mask_file);
     }
 
-    // creating tensor to save Label and Mask
+    
     gnndatum->registLabel(L_GT_C);
     gnndatum->registMask(MASK);
 
-    // initializeing parameter. Creating tensor with shape [layer_size[i],
-    // layer_size[i + 1]]
+    
+    
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       P.push_back(new Parameter(graph->gnnctx->layer_size[i],
                                 graph->gnnctx->layer_size[i + 1], alpha, beta1,
                                 beta2, epsilon, weight_decay));
     }
 
-    // synchronize parameter with other processes
-    // because we need to guarantee all of workers are using the same model
+    
+    
     for (int i = 0; i < P.size(); i++) {
       P[i]->init_parameter();
       P[i]->set_decay(decay_rate, decay_epoch);
@@ -120,17 +120,17 @@ public:
         {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},
         torch::DeviceType::CPU);
 
-    // X[i] is vertex representation at layer i
+    
     for (int i = 0; i < graph->gnnctx->layer_size.size(); i++) {
       NtsVar d;
       X.push_back(d);
     }
-    // X[0] is the initial vertex representation. We created it from
-    // local_feature
+    
+    
     X[0] = F;
   }
 
-  void Test(long s) { // 0 train, //1 eval //2 test
+  void Test(long s) { 
     NtsVar mask_train = MASK.eq(s);
     NtsVar all_train =
         X[graph->gnnctx->layer_size.size() - 1]
@@ -162,7 +162,7 @@ public:
   }
 
   void Loss() {
-    //  return torch::nll_loss(a,L_GT_C);
+    
     torch::Tensor a = X[graph->gnnctx->layer_size.size() - 1];
     torch::Tensor mask_train = MASK.eq(0);
     loss = torch::nll_loss(
@@ -174,9 +174,9 @@ public:
 
   void Update() {
     for (int i = 0; i < P.size(); i++) {
-      // accumulate the gradient using all_reduce
+      
       P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
-      // update parameters with Adam optimizer
+      
       P[i]->learnC2C_with_decay_Adam();
       P[i]->next();
     }
@@ -186,16 +186,16 @@ public:
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       graph->rtminfo->curr_layer = i;
       if(i==0){
-//          int testid=2707;
+
         for(VertexId val=graph->partition_offset[graph->partition_id];val<graph->partition_offset[graph->partition_id+1];val++)
             X[i][val-graph->partition_offset[graph->partition_id]][10]=(float)(val);
-//         LOG_INFO("X_i[0][10](%f, %f)",X[i][testid][0]);
-//test mirror        
+
+
         NtsVar mirror= ctx->runGraphOp<nts::op::DistGetDepNbrOp>(partitioned_graph,active,X[i]);
         NtsVar x_trans=X[i].cuda();
         NtsVar mirror_gpu= ctx->runGraphOp<nts::op::DistGPUGetDepNbrOp>(partitioned_graph,active,x_trans);
-        //NtsVar test_mirror_forward=torch::cat({mirror.slice(1,10,11,1),mirror_gpu.cpu().slice(1,10,11,1)},1);
-       // NtsVar mirror.slice(1,10,11,1).eq(mirror_gpu.cpu().slice(1,10,11,1)).sum(0);
+        
+       
         partitioned_graph->SyncAndLog("sync test DistGPUGetDepNbrOp forward: 1 is passed");
         std::cout<<mirror.slice(1,10,11,1).eq(mirror_gpu.cpu().slice(1,10,11,1)).sum(0).eq(mirror.size(0))<<std::endl;     
         NtsVar x_back_cuda=ctx->ntsOp.top().op->backward(mirror_gpu);
@@ -211,11 +211,11 @@ public:
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       graph->rtminfo->curr_layer = i;
       if(i==0){
-//          int testid=2707;
+
         for(VertexId val=graph->partition_offset[graph->partition_id];val<graph->partition_offset[graph->partition_id+1];val++)
             X[i][val-graph->partition_offset[graph->partition_id]][10]=(float)(val);       
         NtsVar mirror= ctx->runGraphOp<nts::op::DistGetDepNbrOp>(partitioned_graph,active,X[i]);       
-//test DistScatterSrc        
+
         NtsVar mirror_gpu=mirror.cuda();
         NtsVar edge_src=ctx->runGraphOp<nts::op::DistScatterSrc>(partitioned_graph,active,mirror);
         NtsVar edge_src_gpu= ctx->runGraphOp<nts::op::DistGPUScatterSrc>(partitioned_graph,active,mirror_gpu);
@@ -234,13 +234,13 @@ public:
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       graph->rtminfo->curr_layer = i;
       if(i==0){
-//          int testid=2707;
+
         for(VertexId val=graph->partition_offset[graph->partition_id];val<graph->partition_offset[graph->partition_id+1];val++)
             for(VertexId j=0;j<X[i].size(1);j++)
             X[i][val-graph->partition_offset[graph->partition_id]][j]=(float)(val);             
         
         partitioned_graph->SyncAndLog("sync");
-//test DistScatterDst      
+
        NtsVar X_i_gpu=X[i].cuda();
         
         NtsVar edge_dst= ctx->runGraphOp<nts::op::DistScatterDst>(partitioned_graph,active,X[i]);
@@ -262,12 +262,12 @@ public:
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       graph->rtminfo->curr_layer = i;
       if(i==0){
-//          int testid=2707;
+
         for(VertexId val=graph->partition_offset[graph->partition_id];val<graph->partition_offset[graph->partition_id+1];val++)
             for(VertexId j=0;j<X[i].size(1);j++)
             X[i][val-graph->partition_offset[graph->partition_id]][j]=(float)(val);             
         
-//test DistScatterDst      
+
        NtsVar X_i_gpu=X[i].cuda();
         
         NtsVar edge_dst= ctx->runGraphOp<nts::op::DistScatterDst>(partitioned_graph,active,X[i]);
@@ -294,11 +294,11 @@ public:
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       graph->rtminfo->curr_layer = i;
       if(i==0){
-//          int testid=2707;
+
         for(VertexId val=graph->partition_offset[graph->partition_id];val<graph->partition_offset[graph->partition_id+1];val++)
             X[i][val-graph->partition_offset[graph->partition_id]][10]=(float)(val);             
         
-//test DistScatterDst      
+
        NtsVar X_i_gpu=X[i].cuda();
         
         NtsVar edge_dst= ctx->runGraphOp<nts::op::DistScatterDst>(partitioned_graph,active,X[i]);
@@ -311,16 +311,16 @@ public:
         NtsVar a=ctx->runGraphOp<nts::op::DistEdgeSoftMax>(partitioned_graph,active,m);
         NtsVar a_gpu=ctx->runGraphOp<nts::op::DistGPUEdgeSoftMax>(partitioned_graph,active,m_gpu);
         NtsVar test_mirror_forward=torch::cat({a,a_gpu.cpu()},1);
-     //   std::cout<<test_mirror_forward.slice(0,1119,2200,1)<<std::endl;
+     
         partitioned_graph->SyncAndLog("sync test DistGPUEdgeSoftMax forward: 1 is passed");
         std::cout<<torch::abs(a-a_gpu.cpu()).le(0.0000001).sum(0).eq(a.size(0))<<std::endl;
-        //std::cout<<a.size(0)<<" "<<a.eq(a_gpu.cpu()).sum(0)<<std::endl;
+        
         
         NtsVar x_back_cuda=ctx->ntsOp.top().op->backward(m_gpu);
                 ctx->pop_one_op();
         NtsVar x_back=ctx->ntsOp.top().op->backward(m);
          partitioned_graph->SyncAndLog("sync test DistGPUEdgeSoftMax backward: 1 is passed");
-       // std::cout<<(x_back-x_back_cuda.cpu()).slice(0,0,6,1)<<std::endl;
+       
         std::cout<<torch::abs(x_back-x_back_cuda.cpu()).le(0.0000001).sum(0).eq(x_back.size(0))<<std::endl;     
       }        
 
@@ -335,21 +335,21 @@ public:
     exec_time -= get_time();
     for (int i_i = 0; i_i < 1; i_i++) {
       graph->rtminfo->epoch = i_i;
-      //test_mirror();
-      //test_scatter_src();
-      //test_scatter_dst();
+      
+      
+      
       test_gather_dst();
-      //test_softmax();
+      
      
       if (graph->partition_id == 0)
         std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss
                   << std::endl;
     }
  
-//    NtsVar s=torch::ones({3,3});
-//    NtsVar d=torch::zeros({3,3});
-//    NtsVar l= test(d);
-//    printf("%ld %ld\n", &l, &d);
+
+
+
+
 
     delete active;
   }

@@ -1,14 +1,11 @@
-/*
- * test.h
- *
- *  Created on: Dec 3, 2019
- *      Author: wangqg
- */
+
 
 #include "cuda_type.h"
-// #define CUDA_ENABLE 1
+
 #if CUDA_ENABLE
 #include "cuda_runtime.h"
+#include "cusparse.h"
+#include <cuda_profiler_api.h>
 #endif
 
 #ifndef TEST_HPP
@@ -17,7 +14,27 @@
 #include <stdio.h>
 #include <string.h>
 #include <vector>
-//#include"../core/graph.hpp"
+
+
+
+
+
+
+
+
+
+
+
+
+#if CUDA_ENABLE
+#define CHECK_CUDA_RESULT(N) {											\
+	cudaError_t result = N;												\
+	if (result != 0) {													\
+		printf("CUDA call on file %s line %d returned code %d, error: %s\n", \
+        __FILE__, __LINE__, result, cudaGetErrorString(result));       \
+		exit(1);														\
+	} }
+#endif
 
 enum graph_type { CSR, CSC, PAIR };
 enum weight_type { NULL_TYPE, SCALA_TYPE, TENSOR_TYPE };
@@ -25,7 +42,10 @@ enum weight_type { NULL_TYPE, SCALA_TYPE, TENSOR_TYPE };
 void ntsFreeHost(void *buffer);
 void *cudaMallocPinned(long size_of_bytes);
 void *getDevicePointer(void *host_data_to_device);
+
 void *cudaMallocGPU(long size_of_bytes);
+void* cudaMallocGPU(long size_of_bytes, cudaStream_t cuda_stream);
+void cudaFreeGPU(void *data, cudaStream_t cuda_stream);
 void move_result_out(float *output, float *input, int src, int dst,
                      int feature_size, bool sync = true);
 void move_data_in(float *d_pointer, float *h_pointer, int start, int end,
@@ -45,6 +65,9 @@ void FreeEdge(VertexId_CUDA *buffer);
 void zero_buffer(float *buffer, int size);
 void CUDA_DEVICE_SYNCHRONIZE();
 void ResetDevice();
+
+
+void cudaSetUsingDevice(int device_id);
 
 class deviceCSC{
 public:
@@ -75,7 +98,7 @@ void init(VertexId_CUDA v_size_, VertexId_CUDA e_size_,
 }
 void load_from_host(VertexId_CUDA* h_column_offset,VertexId_CUDA* h_row_indices,
             VertexId_CUDA* h_mirror_index){
-   // printf("%d %d %d \n",v_size,e_size,mirror_size);
+   
     move_bytes_in(column_offset,h_column_offset,(v_size+1)*sizeof(VertexId_CUDA));
     move_bytes_in(row_indices,h_row_indices,(e_size)*sizeof(VertexId_CUDA));
     move_bytes_in(mirror_index,h_mirror_index,(mirror_size)*sizeof(VertexId_CUDA));
@@ -96,6 +119,9 @@ void release(){
 
 class Cuda_Stream {
 public:
+  
+  void setNewStream(cudaStream_t cudaStream);
+
   Cuda_Stream();
   void destory_Stream();
   cudaStream_t getStream();
@@ -121,60 +147,60 @@ public:
                                    VertexId_CUDA partition_start,
                                    VertexId_CUDA partition_end, bool sync);
   
-//fused op
+
   void Gather_By_Dst_From_Src(
-      float *input, float *output, float *weight_forward,       // data
-      VertexId_CUDA *row_indices, VertexId_CUDA *column_offset, // graph
+      float *input, float *output, float *weight_forward,       
+      VertexId_CUDA *row_indices, VertexId_CUDA *column_offset, 
       VertexId_CUDA src_start, VertexId_CUDA src_end, VertexId_CUDA dst_start,
       VertexId_CUDA dst_end, VertexId_CUDA edges, VertexId_CUDA batch_size,
       VertexId_CUDA feature_size, bool with_weight = false,
       bool tensor_weight = false);
   void Gather_By_Dst_From_Src_Optim(
-      float *input, float *output, float *weight_forward, // data
+      float *input, float *output, float *weight_forward, 
       VertexId_CUDA *row_indices, VertexId_CUDA *column_offset,
       VertexId_CUDA src_start, VertexId_CUDA src_end, VertexId_CUDA dst_start,
       VertexId_CUDA dst_end, VertexId_CUDA edges, VertexId_CUDA batch_size,
       VertexId_CUDA feature_size, bool with_weight = false,
       bool tensor_weight = false);
   void Gather_By_Src_From_Dst_Optim(
-      float *input, float *output, float *weight_forward, // data
+      float *input, float *output, float *weight_forward, 
       VertexId_CUDA *row_offset, VertexId_CUDA *column_indices,
       VertexId_CUDA src_start, VertexId_CUDA src_end, VertexId_CUDA dst_start,
       VertexId_CUDA dst_end, VertexId_CUDA edges, VertexId_CUDA batch_size,
       VertexId_CUDA feature_size, bool with_weight = false,
       bool tensor_weight = false);
   void Gather_By_Src_From_Dst(
-      float *input, float *output, float *weight_forward,       // data
-      VertexId_CUDA *row_offset, VertexId_CUDA *column_indices, // graph
+      float *input, float *output, float *weight_forward,       
+      VertexId_CUDA *row_offset, VertexId_CUDA *column_indices, 
       VertexId_CUDA src_start, VertexId_CUDA src_end, VertexId_CUDA dst_start,
       VertexId_CUDA dst_end, VertexId_CUDA edges, VertexId_CUDA batch_size,
       VertexId_CUDA feature_size, bool with_weight = false,
       bool tensor_weight = false);
   
-  void Scatter_Src_Mirror_to_Msg(float* message,float* src_mirror_feature,//data 
+  void Scatter_Src_Mirror_to_Msg(float* message,float* src_mirror_feature,
         VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,
         VertexId_CUDA* mirror_index, VertexId_CUDA batch_size,
         VertexId_CUDA feature_size);
 
-  void Gather_Msg_To_Src_Mirror(float* src_mirror_feature,float* message,//data 
+  void Gather_Msg_To_Src_Mirror(float* src_mirror_feature,float* message,
         VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,
         VertexId_CUDA* mirror_index, VertexId_CUDA batch_size,
         VertexId_CUDA feature_size);
 
-  void Scatter_Dst_to_Msg(float* message,float* dst_feature,//data 
+  void Scatter_Dst_to_Msg(float* message,float* dst_feature,
         VertexId_CUDA* row_indices, VertexId_CUDA *column_offset,
         VertexId_CUDA batch_size, VertexId_CUDA feature_size);
 
-  void Gather_Msg_to_Dst(float* dst_feature,float* message,//data 
+  void Gather_Msg_to_Dst(float* dst_feature,float* message,
         VertexId_CUDA* row_indices, VertexId_CUDA *column_offset,
         VertexId_CUDA batch_size, VertexId_CUDA feature_size);
 
-  void Edge_Softmax_Forward_Block(float* msg_output,float* msg_input,//data 
+  void Edge_Softmax_Forward_Block(float* msg_output,float* msg_input,
         float* msg_cached,
         VertexId_CUDA* row_indices, VertexId_CUDA *column_offset,
         VertexId_CUDA batch_size, VertexId_CUDA feature_size);
 
-  void Edge_Softmax_Backward_Block(float* msg_input_grad,float* msg_output_grad,//data 
+  void Edge_Softmax_Backward_Block(float* msg_input_grad,float* msg_output_grad,
         float* msg_cached,
         VertexId_CUDA* row_indices, VertexId_CUDA *column_offset,
         VertexId_CUDA batch_size, VertexId_CUDA feature_size);
@@ -184,37 +210,97 @@ public:
   
   
   void Gather_By_Dst_From_Message(
-      float *input, float *output,            // data
-      VertexId_CUDA *src, VertexId_CUDA *dst, // graph
+      float *input, float *output,            
+      VertexId_CUDA *src, VertexId_CUDA *dst, 
       VertexId_CUDA src_start, VertexId_CUDA src_end, VertexId_CUDA dst_start,
       VertexId_CUDA dst_end, VertexId_CUDA edges, VertexId_CUDA batch_size,
       VertexId_CUDA feature_size, bool with_weight = false,
       bool tensor_weight = false);
   void Scatter_Grad_Back_To_Message(
-      float *input, float *message_grad, // data
+      float *input, float *message_grad, 
       VertexId_CUDA *row_indices, VertexId_CUDA *column_offset,
       VertexId_CUDA src_start, VertexId_CUDA src_end, VertexId_CUDA dst_start,
       VertexId_CUDA dst_end, VertexId_CUDA edges, VertexId_CUDA batch_size,
       VertexId_CUDA feature_size, bool with_weight = true);
-//  void process_local(float *local_buffer, float *input_tensor,
-//                     VertexId_CUDA *src, VertexId_CUDA *dst,
-//                     VertexId_CUDA *src_index, float *weight_buffer,
-//                     int dst_offset, int dst_offset_end, int feature_size,
-//                     int edge_size, bool sync = true);
-//  void process_local_inter(float *local_buffer, float *input_tensor,
-//                           VertexId_CUDA *src, VertexId_CUDA *dst,
-//                           VertexId_CUDA *src_index, VertexId_CUDA *dst_index,
-//                           float *weight_buffer, int dst_offset,
-//                           int dst_offset_end, int feature_size, int edge_size,
-//                           int out_put_buffer_size, bool sync = true);
-//  void process_local_inter_para(float *local_buffer, float *input_tensor,
-//                                VertexId_CUDA *src, VertexId_CUDA *dst,
-//                                VertexId_CUDA *src_index,
-//                                VertexId_CUDA *dst_index, float *para,
-//                                int dst_offset, int dst_offset_end,
-//                                int feature_size, int edge_size,
-//                                int out_put_buffer_size, bool sync = true);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+void Gather_By_Dst_From_Src_with_index(float* input,float* output,float* weight_forward,
+        VertexId_CUDA* row_indices,VertexId_CUDA *column_offset,
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+        VertexId_CUDA src_num, VertexId_CUDA edges,
+	 VertexId_CUDA batch_size,VertexId_CUDA feature_size,
+        VertexId_CUDA* input_index, bool with_weight);
+
+
+
+void Gather_By_Src_From_Dst_with_index(float* input,float* output,float* weight_backward,
+        VertexId_CUDA* colum_indices,VertexId_CUDA *row_offset,
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+        VertexId_CUDA src_num, VertexId_CUDA edges,
+	 VertexId_CUDA batch_size,VertexId_CUDA feature_size,
+        VertexId_CUDA* input_index, bool with_weight);
+
+
+void merge_data_grad_with_index(float* input,float* output,
+	 VertexId_CUDA batch_size,VertexId_CUDA feature_size,
+        VertexId_CUDA* input_index);
+    
+void Gather_By_Dst_From_Src_with_index_spmm(float* input,float* output,float* weight_forward,
+        VertexId_CUDA* row_indices,VertexId_CUDA *column_offset, VertexId_CUDA colum_num,
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+        VertexId_CUDA src_num, VertexId_CUDA edges,
+	 VertexId_CUDA batch_size,VertexId_CUDA feature_size,
+        VertexId_CUDA* input_index, bool with_weight);
+
+
+void Gather_By_Src_From_Dst_with_index_spmm(float* input, float* output, float* weight_backward, 
+        VertexId_CUDA* colum_indices, VertexId_CUDA* row_offset, VertexId_CUDA colum_num, 
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+        VertexId_CUDA src_num, VertexId_CUDA edges, 
+        VertexId_CUDA batch_size, VertexId_CUDA feature_size,
+        VertexId_CUDA* input_index, bool with_weight);
+
+
+void spmm_csc(float* input,float* output,float* weight_forward,
+        VertexId_CUDA* row_indices,VertexId_CUDA *column_offset, VertexId_CUDA colum_num,
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+        VertexId_CUDA edges,
+	    VertexId_CUDA batch_size,VertexId_CUDA feature_size);
+
+void spmm_csr(float* input,float* output,float* weight_forward,
+        VertexId_CUDA* row_offset,VertexId_CUDA *colum_indices, VertexId_CUDA colum_num,
+        VertexId_CUDA src_start, VertexId_CUDA src_end,
+        VertexId_CUDA dst_start, VertexId_CUDA dst_end,
+        VertexId_CUDA edges,
+        VertexId_CUDA batch_size,VertexId_CUDA feature_size);
+
+
+
+
+
 };
 
-// int test();
-#endif /* TEST_H_ */
+#endif

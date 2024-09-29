@@ -10,11 +10,7 @@
 class Bitmap {
   // using ElemType = std::atomic<unsigned long>;
 public:
-  // std::vector may affect runtime performance because it has additional
-  // checking could be replaced by a simple array std::vector<ElemType> data;
-  // graph.hpp is using raw data buffer directly, thus
-  // we can't port it into c++ style directly
-  // TODO: fix the inappropriate useage on bitmap
+
   size_t size;
   unsigned long *data;
 

@@ -1,18 +1,4 @@
-/*
-Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
-*/
 
 #include "GAT_CPU.hpp"
 #include "GCN_CPU_SAMPLE.hpp"
@@ -29,6 +15,14 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 #include "GCN_EAGER.hpp"
 #include "GCN_EAGER_single.hpp"
 #include "GIN_GPU.hpp"
+#include "GCN.hpp"
+#include "GCN_Data_Parallelism.hpp"
+#include "GCN_Data_Parallelism.hpp"
+#include "GCN_CPU_decoupled.hpp"
+#include "NeutronTask_woPipeline.hpp"
+#include "NeutronTask_Pipeline.hpp"
+#include "GCN_Task_Parallelism.hpp"
+#include "GAT_Double_Decouple_pipeline.hpp"
 #endif
 
 int main(int argc, char **argv) {
@@ -184,6 +178,64 @@ int main(int argc, char **argv) {
     ntsGIN->init_graph();
     ntsGIN->init_nn();
     ntsGIN->run();
+  } else if (graph->config->algorithm == std::string("GCN")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GCN_impl *ntsGCN = new GCN_impl(graph, iterations);
+    ntsGCN->init_graph();
+    ntsGCN->init_nn();
+    ntsGCN->run();
+  } else if (graph->config->algorithm == std::string("GCNGPUs")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GCN_GPUs_impl *ntsGCN = new GCN_GPUs_impl(graph, iterations);
+    ntsGCN->init_graph();
+    ntsGCN->init_nn();
+    ntsGCN->run();
+  } else if (graph->config->algorithm == std::string("GCNCPUDECOUPLE")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GCN_CPU_decoupled_impl *ntsGCN = new GCN_CPU_decoupled_impl(graph, iterations);
+    ntsGCN->init_graph();
+    ntsGCN->init_nn();
+    ntsGCN->run();
+  } else if (graph->config->algorithm == std::string("GCNGPUs")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GCN_GPUs_impl *ntsGCNGPUs = new GCN_GPUs_impl(graph, iterations);
+    ntsGCNGPUs->init_graph();
+    ntsGCNGPUs->init_nn();
+    ntsGCNGPUs->run();
+  } else if (graph->config->algorithm == std::string("GCNDoubleDecouple")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GCN_Double_Decouple_impl *ntsGCNGPUs = new GCN_Double_Decouple_impl(graph, iterations);
+    ntsGCNGPUs->init_graph();
+    ntsGCNGPUs->init_nn();
+    ntsGCNGPUs->run();
+  } else if (graph->config->algorithm == std::string("GCNDoubleDecouplePipeline")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GCN_Double_Decouple_pipeline_impl *ntsGCNGPUs = new GCN_Double_Decouple_pipeline_impl(graph, iterations);
+    ntsGCNGPUs->init_graph();
+    ntsGCNGPUs->init_nn();
+    ntsGCNGPUs->run();
+  } 
+  else if (graph->config->algorithm == std::string("GCNDoubleDecouplePipeline")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GCN_Double_Decouple_pipeline_impl *ntsGCNGPUs = new GCN_Double_Decouple_pipeline_impl(graph, iterations);
+    ntsGCNGPUs->init_graph();
+    ntsGCNGPUs->init_nn();
+    ntsGCNGPUs->run();
+  } 
+  else if (graph->config->algorithm == std::string("GATDoubleDecouplePipeline")) {
+    graph->load_directed(graph->config->edge_file, graph->config->vertices);
+    graph->generate_backward_structure();
+    GAT_Double_Decouple_pipeline_impl *ntsGATGPUs = new GAT_Double_Decouple_pipeline_impl(graph, iterations);
+    ntsGATGPUs->init_graph();
+    ntsGATGPUs->init_nn();
+    ntsGATGPUs->run();
   }
 #endif
   exec_time += get_time();

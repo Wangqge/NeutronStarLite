@@ -12,25 +12,25 @@ public:
   ValueType epsilon;
   ValueType decay_rate;
   ValueType decay_epoch;
-  // graph
+  
   VertexSubset *active;
-  // graph with no edge data
+  
   Graph<Empty> *graph;
-  //std::vector<CSC_segment_pinned *> subgraphs;
-  // NN
+  
+  
   GNNDatum *gnndatum;
   NtsVar L_GT_C;
   NtsVar L_GT_G;
   NtsVar MASK;
-  //GraphOperation *gt;
+  
   PartitionedGraph *partitioned_graph;
-  // Variables
+  
   std::vector<Parameter *> P;
   std::vector<NtsVar> X;
   nts::ctx::NtsContext* ctx;
-  // Sampler* train_sampler;
-  // Sampler* val_sampler;
-  // Sampler* test_sampler;
+  
+  
+  
   FullyRepGraph* fully_rep_graph;
   
   NtsVar F;
@@ -51,7 +51,7 @@ public:
 
     graph->init_gnnctx(graph->config->layer_string);
     graph->init_gnnctx_fanout(graph->config->fanout_string);
-    // rtminfo initialize
+    
     graph->init_rtminfo();
     graph->rtminfo->process_local = graph->config->process_local;
     graph->rtminfo->reduce_comm = graph->config->process_local;
@@ -66,9 +66,9 @@ public:
       fully_rep_graph=new FullyRepGraph(graph);
       fully_rep_graph->GenerateAll();
       fully_rep_graph->SyncAndLog("read_finish");
-      // sampler=new Sampler(fully_rep_graph,0,graph->vertices);
       
-    //cp = new nts::autodiff::ComputionPath(gt, subgraphs);
+      
+    
     ctx=new nts::ctx::NtsContext();
   }
   void init_nn() {
@@ -83,7 +83,7 @@ public:
     beta2 = 0.999;
     epsilon = 1e-9;
     gnndatum = new GNNDatum(graph->gnnctx, graph);
-    // gnndatum->random_generate();
+    
     if (0 == graph->config->feature_file.compare("random")) {
       gnndatum->random_generate();
     } else {
@@ -92,20 +92,20 @@ public:
                                        graph->config->mask_file);
     }
 
-    // creating tensor to save Label and Mask
+    
     gnndatum->registLabel(L_GT_C);
     gnndatum->registMask(MASK);
 
-    // initializeing parameter. Creating tensor with shape [layer_size[i],
-    // layer_size[i + 1]]
+    
+    
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       P.push_back(new Parameter(graph->gnnctx->layer_size[i],
                                 graph->gnnctx->layer_size[i + 1], alpha, beta1,
                                 beta2, epsilon, weight_decay));
     }
 
-    // synchronize parameter with other processes
-    // because we need to guarantee all of workers are using the same model
+    
+    
     for (int i = 0; i < P.size(); i++) {
       P[i]->init_parameter();
       P[i]->set_decay(decay_rate, decay_epoch);
@@ -118,7 +118,7 @@ public:
         {graph->gnnctx->l_v_num, graph->gnnctx->layer_size[0]},
         torch::DeviceType::CPU);
 
-    // X[i] is vertex representation at layer i
+    
     for (int i = 0; i < graph->gnnctx->layer_size.size(); i++) {
       NtsVar d;
       X.push_back(d);
@@ -128,13 +128,13 @@ public:
   }
 
   long getCorrect(NtsVar &input, NtsVar &target) {
-    // NtsVar predict = input.log_softmax(1).argmax(1);
+    
     NtsVar predict = input.argmax(1);
     NtsVar output = predict.to(torch::kLong).eq(target).to(torch::kLong);
     return output.sum(0).item<long>();
   }
 
-  void Test(long s) { // 0 train, //1 eval //2 test
+  void Test(long s) { 
     NtsVar mask_train = MASK.eq(s);
     NtsVar all_train =
         X[graph->gnnctx->layer_size.size() - 1]
@@ -166,7 +166,7 @@ public:
   }
  
   void Loss(NtsVar &left,NtsVar &right) {
-    //  return torch::nll_loss(a,L_GT_C);
+    
     torch::Tensor a = left.log_softmax(1);
     NtsVar loss_; 
     loss_= torch::nll_loss(a,right);
@@ -177,9 +177,9 @@ public:
 
   void Update() {
     for (int i = 0; i < P.size(); i++) {
-      // accumulate the gradient using all_reduce
+      
       P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
-      // update parameters with Adam optimizer
+      
       P[i]->learnC2C_with_decay_Adam();
       P[i]->next();
     }
@@ -194,7 +194,7 @@ public:
                                     graph->gnnctx->fanout);
     }
       SampledSubgraph *sg;
-      // acc=0.0;
+      
       correct = 0;
       batch=0;
       while(sampler->has_rest()){
@@ -205,7 +205,7 @@ public:
          
            X[0]=nts::op::get_feature(sg->sampled_sgs[graph->gnnctx->layer_size.size()-2]->src(),F,graph);
            NtsVar target_lab=nts::op::get_label(sg->sampled_sgs[0]->dst(),L_GT_C,graph);
-           for(int l=0;l<(graph->gnnctx->layer_size.size()-1);l++){//forward
+           for(int l=0;l<(graph->gnnctx->layer_size.size()-1);l++){
                
                int hop=(graph->gnnctx->layer_size.size()-2)-l;
                if(l!=0){
@@ -247,7 +247,7 @@ public:
       LOG_INFO("GNNmini::[Dist.GPU.GCNimpl] running [%d] Epoches\n",
                iterations);
     }
-    // get train/val/test node index. (may be move this to GNNDatum)
+    
     std::vector<VertexId> train_nids, val_nids, test_nids;
     for (int i = 0; i < graph->gnnctx->l_v_num; ++i) {
       int type = gnndatum->local_mask[i];
@@ -279,9 +279,9 @@ public:
       ctx->eval();
       Forward(eval_sampler, 1);
       Forward(test_sampler, 2);
-  //      if (graph->partition_id == 0)
-  //        std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss
-  //                  << std::endl;
+  
+  
+  
     }
     delete active;
   }

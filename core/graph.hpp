@@ -1,34 +1,4 @@
-/*
-Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
-*/
-/*
-Copyright (c) 2021-2022 Qiange Wang, Northeastern University
-
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
-*/
-//this code base is built on top of gemini's graph storage and threading tools.
 
 #ifndef GRAPH_HPP
 #define GRAPH_HPP
@@ -66,6 +36,26 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 
 #define CHUNK_LENGTH 32768 // 32768
 #define REPLICATE_THRESHOLD 40
+
+inline bool is_exist(std::vector<VertexId> & lookforVector, VertexId targetId){
+  if (std::find(lookforVector.begin(), lookforVector.end(), targetId) != lookforVector.end())
+  {
+    return true;
+  }
+  else
+  {
+    return false;
+  }
+}
+
+inline int get_item_index_in_vector(std::vector<VertexId> & lookforVector, VertexId targetId){
+  auto iter = std::find(lookforVector.begin(), lookforVector.end(), targetId);
+  if (iter != lookforVector.end())
+  {
+    return std::distance(std::begin(lookforVector), iter);
+  }
+  return -1;
+}
 
 typedef struct dataaa {
   VertexId data[REPLICATE_THRESHOLD];
@@ -3420,20 +3410,7 @@ public:
             }
             reducer += local_reducer;
           }
-          //#pragma omp parallel for
-          //          for (VertexId begin_v_i = partition_offset[partition_id];
-          //          begin_v_i < partition_offset[partition_id + 1]; begin_v_i
-          //          += basic_chunk){
-          //                VertexId v_i = begin_v_i;
-          //                unsigned long word = active->data[WORD_OFFSET(v_i)];
-          //                while (word != 0){
-          //                    if (word & 1){
-          //                    sparse_slot(v_i,graph_partitions[i],buffer,cpu_recv_message_index,i);
-          //                    }
-          //                    v_i++;
-          //                    word = word >> 1;
-          //                }
-          //          }
+
         }
       }
       NtsComm->release_communicator();

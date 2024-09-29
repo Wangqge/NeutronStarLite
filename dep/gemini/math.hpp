@@ -1,15 +1,3 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
-
-/*
- * File:   math.hpp
- * Author: wangqg
- *
- * Created on August 11, 2019, 5:07 PM
- */
 
 #ifndef MATH_HPP
 #include <math.h>

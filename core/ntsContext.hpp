@@ -1,18 +1,4 @@
-/*
-Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
-*/
 #ifndef NTSOPS_HPP
 #define NTSOPS_HPP
 #include <stack>
@@ -146,6 +132,51 @@ public:
     output_grad.push_back(ig);
     count++;
     return f_output;
+} 
+
+
+  template <typename GOPT>
+  NtsVar runGraphOp(DeviceSubStructure* sub_graph,
+        NtsVar &f_input1,NtsVar &f_input2){//graph op
+      
+    static_assert(std::is_base_of<nts::op::ntsGraphOp,GOPT>::value,
+                "template must be a type of graph op!");
+    
+    nts::op::ntsGraphOp * curr=new GOPT(sub_graph);
+    NtsVar f_output=curr->forward(f_input1,f_input2);
+    NtsVar ig;
+    op.push(BIGRAPHOP);
+    output.push(f_output);
+    input.push(f_input1);
+    ntsOp.push(ntsOperator(curr,BIGRAPHOP));
+    iot_id.push_back(IOTensorId((long)(f_output.data_ptr()),(long)(f_input1.data_ptr()),(long)(f_input2.data_ptr())));
+    // pre-alloc space to save graident
+    output_grad.push_back(ig);
+    count++;
+    return f_output;
+}  
+
+
+  template <typename GOPT>
+  NtsVar runGraphOp(DeviceSubStructure* sub_graph,
+        NtsVar &f_input){//graph op
+      
+    static_assert(std::is_base_of<nts::op::ntsGraphOp,GOPT>::value,
+                "template must be a type of graph op!");
+    
+    nts::op::ntsGraphOp * curr=new GOPT(sub_graph);
+    NtsVar f_output=curr->forward(f_input);
+    NtsVar ig;
+    op.push(GRAPHOP);
+    output.push(f_output);
+    input.push(f_input);
+    ntsOp.push(ntsOperator(curr,GRAPHOP));
+    iot_id.push_back(IOTensorId((long)(f_output.data_ptr()),(long)(f_input.data_ptr())));
+
+    // pre-alloc space to save graident
+    output_grad.push_back(ig);
+    count++;
+    return f_output;
 }  
     
 template <typename NOPT>
@@ -197,11 +228,12 @@ template <typename NOPT>
   
  NtsVar runVertexForward(std::function<NtsVar(NtsVar &, NtsVar &)> vertexforward,
             NtsVar &nbr_input,NtsVar &vtx_input){//NNOP
-//     LOG_INFO("call run vertex forward");
-    NtsVar f_output=vertexforward(nbr_input,vtx_input); 
+    // LOG_INFO("call run vertex forward");
+    NtsVar f_output=vertexforward(nbr_input,vtx_input);
     if (this->training == true) {
       appendNNOp(nbr_input, f_output);
     }
+    // LOG_INFO("finish run vertex forward");
 //    printf("tese %ld\n",(long)(&f_output));
     return f_output;
 }
@@ -235,14 +267,14 @@ template <typename NOPT>
     if ((count > 0 && op.top() == NNOP)&&((long)input_t.data_ptr())==iot_id[iot_id.size()-1].o_id) {
         output.pop();
         output.push(output_t);
-     //    LOG_INFO("update DATA_PTR %ld",(long)output_t.data_ptr());
+        // LOG_INFO("update DATA_PTR %ld",(long)output_t.data_ptr());
         iot_id[iot_id.size()-1].updateOutput((long)(output_t.data_ptr()));
     } else {
         op.push(NNOP);
         output.push(output_t);
         input.push(input_t);
         ntsOp.push(ntsOperator(NNOP));      
-     //    LOG_INFO("inster DATA_PTR %ld",(long)output_t.data_ptr());
+        // LOG_INFO("inster DATA_PTR %ld",(long)output_t.data_ptr());
         iot_id.push_back(IOTensorId((long)(output_t.data_ptr()),(long)(input_t.data_ptr())));
         // pre-alloc space to save graident
         output_grad.push_back(ig);
@@ -279,13 +311,13 @@ template <typename NOPT>
     output.top().backward(torch::ones_like(output.top()), retain_graph);
     output_grad[top_idx()-1]= input.top().grad();// grad of loss
     pop_one_op();
-//    LOG_INFO("FINISH LOSS");
+  //  LOG_INFO("FINISH LOSS");
       while (count > 1 || (count == 1 && NNOP == op.top())) {
     // NNOP means we are using torch lib to do the forward computation
     // thus we can use auto diff framework in libtorch
-//     LOG_INFO("FINISH %d",op.size());  
+    // LOG_INFO("FINISH %d",op.size());  
     if (GRAPHOP == op.top()) {
-//        LOG_INFO("FINISH Graph %d",op.size());  
+      //  LOG_INFO("FINISH Graph %d",op.size());  
       int preop_id=top_idx(); 
       if(output_grad[top_idx()].dim()<2){
           output_grad[top_idx()]=output.top().grad();
@@ -295,7 +327,7 @@ template <typename NOPT>
               break;
       }// where to write i grad
       output_grad[preop_id]=ntsOp.top().get_graphop()->backward(output_grad[top_idx()]);
-   //   LOG_INFO("input id %ld %d %d",preop_id,top_idx(),output_grad[preop_id].dim());
+    //  LOG_INFO("input id %ld %d %d",preop_id,top_idx(),output_grad[preop_id].dim());
 //stable      
 //      output_grad[top_idx()-1]=ntsOp.top().op->backward(output_grad[top_idx()]);
       pop_one_op();
@@ -338,25 +370,313 @@ template <typename NOPT>
 //      output_grad[top_idx()-1]=ntsOp.top().op->backward(output_grad[top_idx()]);
       pop_one_op();
     }  else if (NNOP == op.top()) {// directly use pytorch
-//        LOG_INFO("FINISH nn %d",op.size());  
+      //  LOG_INFO("FINISH nn %d",op.size());  
       if(output_grad[top_idx()].dim()<2){
           output_grad[top_idx()]=output.top().grad();
+          // LOG_INFO("<2 %d",output_grad[top_idx()].size(1)); 
       }//determine o grad
       if(output_grad[top_idx()].dim()>1){
         assert(output_grad[top_idx()].size(1)==output.top().size(1));
         assert(output_grad[top_idx()].size(0)==output.top().size(0)); 
         output.top().backward(output_grad[top_idx()], retain_graph);
+          // LOG_INFO(">1 %d",output_grad[top_idx()].size(1)); 
       }
       
       pop_one_op();
   //  LOG_INFO("FINISH NN OP");
     } else {
-      LOG_INFO("NOT SUPPORT OP");
+      // LOG_INFO("NOT SUPPORT OP");
       assert(true);
     }
   }
     reset();  
   }
+  
+  void self_decouple_P_backward(DeviceSubStructure *subgraph, bool retain_graph = true){
+    assert(this->training);
+    output.top().backward(torch::ones_like(output.top()), retain_graph);
+    output_grad[top_idx()-1]= input.top().grad();// grad of loss
+    pop_one_op();
+    while (count > 1 || (count == 1 && NNOP == op.top())) {
+      if (GRAPHOP == op.top()) {
+        //  LOG_INFO("FINISH Graph %d",op.size());  
+        int preop_id=top_idx(); 
+        if(output_grad[top_idx()].dim()<2){
+            output_grad[top_idx()]=output.top().grad();
+        }//determine o grad
+        for(preop_id=top_idx();preop_id>=0;preop_id--){
+            if(iot_id[preop_id].o_id==iot_id[top_idx()].i_id1)
+                break;
+        }
+        output_grad[preop_id]=ntsOp.top().get_graphop()->backward(output_grad[top_idx()]);
+        pop_one_op();
+      } else {
+        assert(true);
+      }
+    }
+    
+    if (GRAPHOP == op.top() && count == 1) {//NTS默认不跑最后一个图操作的反向
+      subgraph->decoupled_mid_grad=ntsOp.top().get_graphop()->backward(output_grad[top_idx()]);
+    }
+    reset();  
+  }
+
+  void self_decouple_P_backward(std::ofstream & out, DeviceSubStructure *subgraph, bool retain_graph = true){
+    assert(this->training);
+    output.top().backward(torch::ones_like(output.top()), retain_graph);
+    output_grad[top_idx()-1]= input.top().grad();// grad of loss
+    out << "loss grad : " << input.top().grad().abs().sum() << std::endl;
+    pop_one_op();
+    while (count > 1 || (count == 1 && NNOP == op.top())) {
+      if (GRAPHOP == op.top()) {
+        //  LOG_INFO("FINISH Graph %d",op.size());  
+        int preop_id=top_idx(); 
+        if(output_grad[top_idx()].dim()<2){
+            output_grad[top_idx()]=output.top().grad();
+        }//determine o grad
+        for(preop_id=top_idx();preop_id>=0;preop_id--){
+            if(iot_id[preop_id].o_id==iot_id[top_idx()].i_id1)
+                break;
+        }
+        output_grad[preop_id]=ntsOp.top().get_graphop()->backward(output_grad[top_idx()]);
+            out << "----------------count: " << count << std::endl;
+            out << "start graph backward " << std::endl;
+            out << "preop_id: " << preop_id << std::endl;
+            out << "input grad size: " << output_grad[top_idx()].sizes() << std::endl;
+            out << "input grad dim: " << output_grad[top_idx()].dim() << std::endl;
+            out << "output_grad size: " << output_grad[preop_id].sizes() << std::endl;
+            out << "end graph backward " << std::endl;
+            out << output_grad[preop_id].abs().sum();
+        pop_one_op();
+      } else {
+        assert(true);
+      }
+    }
+    
+    if (GRAPHOP == op.top() && count == 1) {//NTS默认不跑最后一个图操作的反向
+      subgraph->decoupled_mid_grad=ntsOp.top().get_graphop()->backward(output_grad[top_idx()]);
+            out << "----------------count: " << count << std::endl;
+            out << "start graph backward " << std::endl;
+            out << "preop_id: " << "decoupled_mid_grad" << std::endl;
+            out << "input grad size: " << output_grad[top_idx()].sizes() << std::endl;
+            out << "input grad dim: " << output_grad[top_idx()].dim() << std::endl;
+            out << "output_grad size: " << subgraph->decoupled_mid_grad.sizes() << std::endl;
+            out << "end graph backward " << std::endl;
+
+            out << "(out data)GPU ID: " << subgraph->decoupled_mid_grad.device() << std::endl;
+            out << "(out data)size: " << subgraph->decoupled_mid_grad.sizes() << std::endl;
+            out << subgraph->decoupled_mid_grad.abs().mean() << std::endl;
+            // NtsVar X_layer = subgraph->decoupled_mid_grad.to(torch::DeviceType::CPU);
+            // for(int i = 0; i < subgraph->owned_vertices; i++)
+            // {
+            //     out << "dst id[" << i + subgraph->subdevice_offset[subgraph->device_id] << "] embedding: ";
+            //     for(int j = 0; j < X_layer.size(1); j++)
+            //     {
+            //         out << X_layer[i].data<float>()[j] << " ";
+            //     }
+            //     out << std::endl;
+            // }
+    }
+    reset();  
+  }
+
+  void self_decouple_T_backward(bool retain_graph = true){
+    assert(this->training);
+    while (count > 1 || (count == 1 && NNOP == op.top())) { 
+      if (NNOP == op.top()) {
+        if(output_grad[top_idx()].dim()<2){
+            output_grad[top_idx()]=output.top().grad();
+        }//determine o grad
+        if(output_grad[top_idx()].dim()>1){
+          assert(output_grad[top_idx()].size(1)==output.top().size(1));
+          assert(output_grad[top_idx()].size(0)==output.top().size(0)); 
+          output.top().backward(output_grad[top_idx()], retain_graph);
+        }
+        
+        pop_one_op();
+      } else {
+        assert(true);
+      }
+  }
+    reset();  
+  }
+  
+  void self_decouple_T_backward(std::ofstream & out, bool retain_graph = true){
+    assert(this->training);
+    out << "---------------------------------------start NN backward" << std::endl;
+
+    out << "----------------count: " << count << std::endl;
+    out << "start NN backward " << std::endl;
+    out << "preop_id: " << "decoupled_mid_grad" << std::endl;
+    out << "input grad size: " << output_grad[top_idx()].sizes() << std::endl;
+    out << "input grad dim: " << output_grad[top_idx()].dim() << std::endl;
+    out  << output_grad[top_idx()].mean() << std::endl;
+    // out << "(out data)GPU ID: " << output_grad[top_idx()].device() << std::endl;
+    // out << "(out data)size: " << output_grad[top_idx()].sizes() << std::endl;
+    // NtsVar X_layer = output_grad[top_idx()].to(torch::DeviceType::CPU);
+    // for(int i = 0; i < subgraph->owned_vertices; i++)
+    // {
+    //     out << "dst id[" << i + subgraph->subdevice_offset[subgraph->device_id] << "] embedding: ";
+    //     for(int j = 0; j < X_layer.size(1); j++)
+    //     {
+    //         out << X_layer[i].data<float>()[j] << " ";
+    //     }
+    //     out << std::endl;
+    // }
+
+    while (count > 1 || (count == 1 && NNOP == op.top())) {
+      if (NNOP == op.top()) {
+        if(output_grad[top_idx()].dim()<2){
+            output_grad[top_idx()]=output.top().grad();
+        }//determine o grad
+        if(output_grad[top_idx()].dim()>1){
+          out << "here!" << std::endl;
+          assert(output_grad[top_idx()].size(1)==output.top().size(1));
+          assert(output_grad[top_idx()].size(0)==output.top().size(0)); 
+          output.top().backward(output_grad[top_idx()], retain_graph);
+        }
+        
+        pop_one_op();
+      } else {
+        assert(true);
+      }
+  }
+    reset();  
+  }
+
+
+  void self_backward(std::ofstream & out, bool retain_graph = true){
+    assert(this->training);
+            out << "---------------------------------------start backward" << std::endl;
+            out << "start loss backward : " << output.top() << std::endl;
+            out << "loss device : " << output.top().device()  << std::endl;
+            out << "---------------------count : " << count << std::endl;
+            out << "output_grad size : " << output_grad.size() << std::endl;
+    output.top().backward(torch::ones_like(output.top()), retain_graph);
+            out << "finish loss backward" << std::endl;
+    output_grad[top_idx()-1]= input.top().grad();// grad of loss
+            // out << "loss grad device: " << output_grad[top_idx()-1].device() << std::endl;
+            // out << "loss grad size: " << output_grad[top_idx()-1].sizes() << std::endl;
+            out << "loss grad sum: " << output_grad[top_idx()-1].abs().sum() << std::endl;
+            out << "loss grad mean: " << output_grad[top_idx()-1].abs().mean() << std::endl;
+
+            // NtsVar loss_grad_cpu = output_grad[top_idx()-1].to(torch::DeviceType::CPU);
+            // for(int i = 0; i < loss_grad_cpu.size(0); i++)
+            // {
+            //     out << "local dst id[" << i  << "] embedding: ";
+            //     for(int j = 0; j < loss_grad_cpu.size(1); j++)
+            //     {
+            //         out << loss_grad_cpu[i].data<float>()[j] << " ";
+            //     }
+            //     out << std::endl;
+            // }
+    pop_one_op();
+            out << "op.top: " << op.top() << std::endl;
+  
+      while (count > 1 || (count == 1 && NNOP == op.top())) {
+    // NNOP means we are using torch lib to do the forward computation
+    // thus we can use auto diff framework in libtorch
+    // LOG_INFO("FINISH %d",op.size());  
+    if (GRAPHOP == op.top()) {
+      //  LOG_INFO("FINISH Graph %d",op.size());  
+      int preop_id=top_idx(); 
+      if(output_grad[top_idx()].dim()<2){
+          output_grad[top_idx()]=output.top().grad();
+      }//determine o grad
+      for(preop_id=top_idx();preop_id>=0;preop_id--){
+          if(iot_id[preop_id].o_id==iot_id[top_idx()].i_id1)
+              break;
+      }// where to write i grad
+            out << "----------------count: " << count << std::endl;
+            // out << "start graph backward " << std::endl;
+            // out << "preop_id: " << preop_id << std::endl;
+            // out << "input grad size: " << output_grad[top_idx()].sizes() << std::endl;
+            // out << "input grad dim: " << output_grad[top_idx()].dim() << std::endl;
+            
+            out << "g input grad sum: " << output_grad[top_idx()].abs().sum() << std::endl;
+            out << "g input grad mean: " << output_grad[top_idx()].abs().mean() << std::endl;
+            
+      output_grad[preop_id]=ntsOp.top().get_graphop()->backward(output_grad[top_idx()]);
+            // out << "output_grad size: " << output_grad[preop_id].sizes() << std::endl;
+
+            out << "g out sum: " << output_grad[top_idx()-1].abs().sum() << std::endl;
+            out << "g out mean: " << output_grad[top_idx()-1].abs().mean() << std::endl;
+
+            // out << "end graph backward " << std::endl;
+      pop_one_op();
+    }else if (BIGRAPHOP == op.top()) { // test
+//          LOG_INFO("FINISH BIGRAPHOP %d",op.size());  
+      int preop_id=top_idx(); 
+      if(output_grad[top_idx()].dim()<2){
+          output_grad[top_idx()]=output.top().grad();
+      }//determine o grad
+      for(preop_id=top_idx();preop_id>=0;preop_id--){
+          if(iot_id[preop_id].o_id==iot_id[top_idx()].i_id1)
+              break;
+      }// where to write i grad
+  //    LOG_INFO("15 bug %d",preop_id); 
+      output_grad[preop_id]=ntsOp.top().get_graphop()->backward(output_grad[top_idx()]);
+      
+      preop_id=top_idx();
+      for(preop_id=top_idx();preop_id>=0;preop_id--){
+          if(iot_id[preop_id].o_id==iot_id[top_idx()].i_id2)
+              break;
+      }
+      output_grad[preop_id]=ntsOp.top().get_graphop()->get_additional_grad();
+      
+      
+//stable      
+//      output_grad[top_idx()-1]=ntsOp.top().op->backward(output_grad[top_idx()]);
+      pop_one_op();
+    }else if (SELFNNOP == op.top()) { // test
+//          LOG_INFO("FINISH SELF_NN %d",op.size());  
+      int preop_id=top_idx(); 
+      if(output_grad[top_idx()].dim()<2){
+          output_grad[top_idx()]=output.top().grad();
+      }//determine o grad
+      for(preop_id=top_idx();preop_id>=0;preop_id--){
+          if(iot_id[preop_id].o_id==iot_id[top_idx()].i_id1)
+              break;
+      }// where to write i grad
+      output_grad[preop_id]=ntsOp.top().get_nnop()->backward(output_grad[top_idx()]);
+//stable      
+//      output_grad[top_idx()-1]=ntsOp.top().op->backward(output_grad[top_idx()]);
+      pop_one_op();
+    }  else if (NNOP == op.top()) {// directly use pytorch
+      //  LOG_INFO("FINISH nn %d",op.size());  
+      
+            out << "----------------count: " << count << std::endl;
+            out << "start NN backward " << std::endl;
+            out << "output.top() sum: " << output.top().abs().sum() << std::endl;
+            out << "output.top() mean: " << output.top().abs().sum() << std::endl;
+      
+      if(output_grad[top_idx()].dim()<2){
+          output_grad[top_idx()]=output.top().grad();
+          // LOG_INFO("<2 %d",output_grad[top_idx()].size(1)); 
+      }//determine o grad
+      if(output_grad[top_idx()].dim()>1){
+        assert(output_grad[top_idx()].size(1)==output.top().size(1));
+        assert(output_grad[top_idx()].size(0)==output.top().size(0)); 
+        output.top().backward(output_grad[top_idx()], retain_graph);
+          // LOG_INFO(">1 %d",output_grad[top_idx()].size(1)); 
+      }
+            out << "output_grad[top_idx()] sum : " << output_grad[top_idx()].abs().sum() << std::endl;
+            out << "output_grad[top_idx()] mean : " << output_grad[top_idx()].abs().mean() << std::endl;
+            out << "finish NN backward" << std::endl;
+      
+      pop_one_op();
+            out << "after pop output.top().grad size : " << output.top().grad().sizes() << std::endl;
+            out << "after pop input.top().grad size : " << input.top().grad().sizes() << std::endl;
+  //  LOG_INFO("FINISH NN OP");
+    } else {
+      // LOG_INFO("NOT SUPPORT OP");
+      assert(true);
+    }
+  }
+    reset();  
+  }
+  
+  
   void debug(){
     printf("ADDEBUG input.size()%d\n", input.size());
     // for(int i=0;i<count;i++){
@@ -388,6 +708,10 @@ template <typename NOPT>
 
   void train() {
     this->training = true;
+  }
+
+  bool is_train() {
+    return this->training;
   }
 
   void eval() {

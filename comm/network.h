@@ -1,18 +1,4 @@
-/*
-Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
-*/
 
 #ifndef NETWORK_H
 #define NETWORK_H
@@ -47,17 +33,10 @@ struct MsgUnit_buffer {
 struct MessageBuffer {
   size_t capacity;
 
-  // the actual size (i.e. bytes) should be sizeof(element) * count
   int count;
 
-  // deprecated
-  // Messagebuffer is orgainized like this
-  // unit_1 data_1 unit_2 data_2 unit_3 data_3 ...
   char *data;
 
-  // CUDA pinned memory is faster than the normal one
-  // for study purpose, you can refer to this answer
-  // https://stackoverflow.com/questions/5736968/why-is-cuda-pinned-memory-so-fast
   bool pinned;
 
   MessageBuffer();

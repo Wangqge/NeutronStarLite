@@ -4,10 +4,12 @@ add_definitions(-w)
 set(CMAKE_CUDA_COMPILER /usr/local/cuda/bin/nvcc)
 # please change this to the path where you put libtorch
 # TODO: torch path should not hard coded in cmake file
-list(APPEND CMAKE_PREFIX_PATH "./GPU_libtorch/libtorch-1-9/libtorch/")
+# list(APPEND CMAKE_PREFIX_PATH "/home/***/lib/libtorch-1.9-cu111/")
+list(APPEND CMAKE_PREFIX_PATH "/home/***/lib/libtorch-1.13/libtorch/")
 
 project(GNNmini)
 set(ENV{LANG} "C")
+set(CUDA_TOOLKIT_ROOT_DIR /usr/local/cuda)
 option (CUDA_ENABLE "DEFAULT ENABLE CUDA" ON)
 message(STATUS "NeutronStar buid with CUDA ${CUDA_ENABLE}")
 
@@ -20,7 +22,9 @@ if (CUDA_ENABLE)
                 message(FATAL_ERROR "libtorch does not support gpu, please download the gpu version of libtorch.")
         endif()
         add_definitions(-DCUDA_ENABLE)
+        find_package(CUDA REQUIRED)
         add_subdirectory(cuda)
+        set(EXTRA_LIBS ${EXTRA_LIBS} cuda_propagate)
 endif()
 
 #exec_program("mpic++ -showme:compile" OUTPUT_VARIABLE MPI_COMPILE_FLAGS)
@@ -88,8 +92,12 @@ add_custom_target(format ${NEUTRONSTAR_BUILD_SUPPORT_DIR}/run_clang_format.py
         # --quiet
         )
 
+set(METIS_INCLUDE /home/***/lib/metis/include/)
+set(METIS_LIB /home/***/lib/metis/lib/libmetis.so)
+
 include_directories(
 ${CMAKE_CURRENT_SOURCE_DIR}
+${METIS_INCLUDE}
 ./core
 ./comm
 ./cuda
@@ -98,8 +106,17 @@ ${MPI_INCLUDE_PATH}
 )
 
 # setting debug flags
-set(CMAKE_CXX_FLAGS "-O3 -Wall -std=c++14 -g -fopenmp -march=native")
-set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -std=c++14 -fopenmp -march=native -O0 -fsanitize=address -fno-omit-frame-pointer -fno-optimize-sibling-calls")
+# set(CMAKE_CXX_FLAGS "-O3 -Wall -std=c++14 -g -fopenmp -march=native")
+# set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -std=c++14 -fopenmp -march=native -O0 -fsanitize=address -fno-omit-frame-pointer -fno-optimize-sibling-calls")
+# set(CMAKE_CXX_FLAGS "-O0 -Wall -std=c++14 -g -fopenmp -march=native")
+# set(CMAKE_CXX_FLAGS_DEBUG "-O0 -Wall -std=c++14 -g -fopenmp -march=native")
+
+set(CMAKE_CXX_FLAGS "-O0 -Wall -std=c++17 -g -fopenmp -march=native -lcublas -lcudart")
+# set(CMAKE_CXX_FLAGS "-O0 -Wall -std=c++17 -g -fopenmp -march=native")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG}  -std=c++17 -fopenmp -O0 -march=native -fno-omit-frame-pointer -fno-optimize-sibling-calls")
+
+
+#set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -std=c++14 -fopenmp -march=native -O0 -fsanitize=address -fno-omit-frame-pointer -fno-optimize-sibling-calls")
 
 message(STATUS "CMAKE_CXX_FLAGS: ${CMAKE_CXX_FLAGS}")
 message(STATUS "CMAKE_CXX_FLAGS_DEBUG: ${CMAKE_CXX_FLAGS_DEBUG}")
@@ -116,21 +133,21 @@ set(NEUTRONSTAR_TEST_SRC_FILES
         "comm/network.cpp"
 )
 
+message(STATUS "CUDA_LIBRARIES = ${CUDA_LIBRARIES}.")
 
 add_executable(nts ${NEUTRONSTAR_SRC_FILES})
 if (CUDA_ENABLE)
-        target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} numa ${CUDA_LIBRARIES} cuda_propagate)
+        target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} ${EXTRA_LIBS} numa ${CUDA_LIBRARIES} ${METIS_LIB} ${NCCL_LIBRARIES} cuda_propagate)
 else()
-        target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} numa)
+        target_link_libraries(nts  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} ${METIS_LIB} numa)
 endif()
 
-
-add_executable(nts_test ${NEUTRONSTAR_TEST_SRC_FILES})
-if (CUDA_ENABLE)
-        target_link_libraries(nts_test  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} numa ${CUDA_LIBRARIES} cuda_propagate)
-else()
-        target_link_libraries(nts_test  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} numa)
-endif()
+# add_executable(nts_test ${NEUTRONSTAR_TEST_SRC_FILES})
+# if (CUDA_ENABLE)
+#         target_link_libraries(nts_test  ${TORCH_LIBRARIES} ${MPI_LIBRARIES} numa ${CUDA_LIBRARIES} ${METIS_LIB} cuda_propagate)
+# else()
+#         target_link_libraries(nts_test  ${TORCH_LIBRARIES} ${MPI_LIBRARIES}  ${METIS_LIB} numa)
+# endif()
 
 
 # quick test for debugging purpose

@@ -1,18 +1,4 @@
-/*
-Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
-*/
 #ifndef FULLLYREPGRAPH_HPP
 #define FULLLYREPGRAPH_HPP
 #include <assert.h>
@@ -99,8 +85,8 @@ public:
                     std::vector<VertexId> &column_offset,
                         std::vector<VertexId> &row_indices,VertexId id)> vertex_sample){
         {
-omp_set_num_threads(threads);
-#pragma omp parallel for
+    omp_set_num_threads(threads);
+    #pragma omp parallel for
             for (VertexId begin_v_i = 0;begin_v_i < curr_dst_size;begin_v_i += 1) {
             // for every vertex, apply the sparse_slot at the partition
             // corresponding to the step
@@ -125,8 +111,8 @@ omp_set_num_threads(threads);
                             //   std::vector<VertexId>&row_indices)>sparse_slot,VertexId layer,VertexId threads){
                               std::vector<VertexId>&row_indices)>sparse_slot,VertexId layer){
         {
-omp_set_num_threads(threads);
-#pragma omp parallel for
+    omp_set_num_threads(threads);
+    #pragma omp parallel for
             for (VertexId begin_v_i = 0;
                 begin_v_i < sampled_sgs[layer]->dst().size();
                     begin_v_i += 1) {
@@ -162,7 +148,7 @@ public:
   VertexId owned_edges;
   VertexId owned_mirrors;
   
-  //global graph;
+  //global graph; CSC
   VertexId* column_offset;
   VertexId* row_indices;
   
@@ -195,7 +181,7 @@ public:
     memset(row_indices, 0, sizeof(VertexId) * global_edges);
     VertexId *tmp_offset = new VertexId[global_vertices + 1];
     memset(tmp_offset, 0, sizeof(VertexId) * (global_vertices + 1));
-    long total_bytes = file_size(graph_->filename.c_str());
+    long total_bytes = file_size(graph_->filename.c_str());//边文件的size
 #ifdef PRINT_DEBUG_MESSAGES
     if (partition_id == 0) {
       printf("|V| = %u, |E| = %lu\n", vertices, edges);
@@ -227,11 +213,11 @@ public:
       for (EdgeId e_i = 0; e_i < curr_read_edges; e_i++) {
         VertexId src = read_edge_buffer[e_i].src;
         VertexId dst = read_edge_buffer[e_i].dst;
-        tmp_offset[dst + 1]++;
+        tmp_offset[dst + 1]++;//计算了每一个dst点的度
       }
     }
     for (int i = 0; i < global_vertices; i++) {
-      tmp_offset[i + 1] += tmp_offset[i];
+      tmp_offset[i + 1] += tmp_offset[i];//前缀和
     }
 
     memcpy(column_offset, tmp_offset, sizeof(VertexId) * (global_vertices + 1));

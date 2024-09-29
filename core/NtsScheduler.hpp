@@ -1,18 +1,4 @@
-/*
-Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
-*/
 
 #ifndef NTSSCHEDULER_HPP
 #define NTSSCHEDULER_HPP
@@ -48,6 +34,8 @@ Copyright (c) 2015-2016 Xiaowei Zhu, Tsinghua University
 #include "torch/csrc/autograd/generated/variable_factories.h"
 #include "torch/nn/module.h"
 #include "torch/torch.h"
+//add ny ***
+#include "cuda/ntsGPUCommunicator.hpp"
 //#define CUDA_ENABLE 1
 typedef torch::Tensor NtsVar;
 typedef torch::nn::Module NtsMudule;
@@ -645,8 +633,11 @@ struct Parameter : torch::nn::Module {
   ValueType *W_from;
   ValueType *w_gradient_buffer;
   Network_simple<ValueType> *network_simple;
+
+  NCCL_NN_Communicator* nccl_nn_comm;
   int row, col;
   NtsVar W_gradient;
+  NtsVar W_gradient_gpu_reduce;
   NtsVar W_g;
   ValueType alpha;
   ValueType beta1;
@@ -662,6 +653,8 @@ struct Parameter : torch::nn::Module {
 
   int decay_rate;
   int decay_epoch;
+
+
   Parameter(size_t w, size_t h, ValueType alpha_, ValueType beta1_,
             ValueType beta2_, ValueType epsilon_, ValueType weight_decay_) {
     row = w;
@@ -676,6 +669,7 @@ struct Parameter : torch::nn::Module {
     w_gradient_buffer = new ValueType[w * h];
     memset(w_gradient_buffer, 0, sizeof(ValueType) * w * h);
     W_gradient = torch::from_blob(w_gradient_buffer, {w, h}, torch::kFloat);
+    W_gradient_gpu_reduce = torch::from_blob(w_gradient_buffer, {w, h}, torch::kFloat);
     network_simple = new Network_simple<ValueType>(row, col);
     M = torch::zeros({w, h}, torch::kFloat);
     V = torch::zeros({w, h}, torch::kFloat);
@@ -704,6 +698,7 @@ struct Parameter : torch::nn::Module {
     w_gradient_buffer = new ValueType[w * h];
     memset(w_gradient_buffer, 0, sizeof(ValueType) * w * h);
     W_gradient = torch::from_blob(w_gradient_buffer, {w, h}, torch::kFloat);
+    W_gradient_gpu_reduce = torch::from_blob(w_gradient_buffer, {w, h}, torch::kFloat);
     network_simple = new Network_simple<ValueType>(row, col);
     weight_decay = weight_decay;
     l_r = l_r_;
@@ -755,11 +750,62 @@ struct Parameter : torch::nn::Module {
   }
 
 #if CUDA_ENABLE
+
   void Adam_to_GPU() {
     M_GPU = M.cuda();
     V_GPU = V.cuda();
     W_g = W_gradient.cuda();
   }
+
+  void Adam_to_GPU(int device_id) {
+    torch::Device GPU(torch::kCUDA, device_id);
+    M_GPU = M.to(GPU);
+    V_GPU = V.to(GPU);
+    W_g = W_gradient.to(GPU);
+  }
+  void set_multi_gpu_comm(NCCL_Communicator* nccl_comm_) {
+      this->nccl_nn_comm = new NCCL_NN_Communicator(nccl_comm_);
+  }
+
+  void reduce_multi_gpu_gradient(NtsVar from, int device_id, cudaStream_t cudaStream) {
+        W_gradient_gpu_reduce.set_data(from);
+        nccl_nn_comm->AllReduce(device_id,W_gradient_gpu_reduce.accessor<ValueType, 2>().data(),
+                                    W_gradient_gpu_reduce.accessor<ValueType, 2>().data(),
+                                    W_gradient_gpu_reduce.size(0) * W_gradient_gpu_reduce.size(1),
+                                    cudaStream);
+    }
+  
+  void reset_gradient() {
+      // torch::Device GPU(torch::kCUDA, global_device_id);
+      // W_gradient = W_gradient.to(GPU);
+      W_gradient.set_data(W_gradient_gpu_reduce);
+  }
+
+    void reset_gradient(NtsVar from) {
+      // torch::Device GPU(torch::kCUDA, global_device_id);
+      // W_gradient = W_gradient.to(GPU);
+      W_gradient.set_data(from);
+  }
+
+  void reset_gradient(NtsVar from, int global_device_id, cudaStream_t cudaStream) {
+      // torch::Device GPU(torch::kCUDA, global_device_id);
+      // W_gradient = W_gradient.to(GPU);
+      W_gradient.set_data(W_gradient_gpu_reduce);
+  }
+
+  void store_gradient(NtsVar from, int global_device_id, cudaStream_t cudaStream) {
+        // torch::Device GPU(torch::kCUDA, global_device_id);
+        // W_gradient = W_gradient.to(GPU);
+        W_gradient = torch::add(W_gradient, W_gradient_gpu_reduce);
+    }
+
+    void store_gradient(NtsVar from) {
+        // torch::Device GPU(torch::kCUDA, global_device_id);
+        // W_gradient = W_gradient.to(GPU);
+        W_gradient = torch::add(W_gradient, from);
+    }
+  
+  
   void learnC2G(ValueType learning_rate) {
     NtsVar tmp = W_gradient.cuda();
     NtsVar a = (W - (tmp * learning_rate));
@@ -778,6 +824,16 @@ struct Parameter : torch::nn::Module {
     M_GPU = beta1 * M_GPU + (1 - beta1) * W_g;
     V_GPU = beta2 * V_GPU + (1 - beta2) * W_g * W_g;
     W.set_data(W - alpha * M_GPU / (torch::sqrt(V_GPU) + epsilon));
+
+  }
+  void learnG_with_decay_Adam() {
+    W_g.set_data(W);
+    W_g = W_g * weight_decay;
+    W_g = W_g + W_gradient; //+weight_decay;
+    M_GPU = beta1 * M_GPU + (1 - beta1) * W_g;
+    V_GPU = beta2 * V_GPU + (1 - beta2) * W_g * W_g;
+    W.set_data(W - alpha * M_GPU / (torch::sqrt(V_GPU) + epsilon));
+
   }
   void learn_local_with_decay_Adam() {
     W_g.set_data(W);

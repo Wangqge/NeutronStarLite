@@ -1,18 +1,4 @@
-/*
-Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 
-   Licensed under the Apache License, Version 2.0 (the "License");
-   you may not use this file except in compliance with the License.
-   You may obtain a copy of the License at
-
-       http://www.apache.org/licenses/LICENSE-2.0
-
-   Unless required by applicable law or agreed to in writing, software
-   distributed under the License is distributed on an "AS IS" BASIS,
-   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-   See the License for the specific language governing permissions and
-   limitations under the License.
-*/
 #ifndef NTSGRAPHOP_HPP
 #define NTSGRAPHOP_HPP
 #include <assert.h>
@@ -27,6 +13,7 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 #include "core/graph.hpp"
 #include "core/ntsBaseOp.hpp"
 #include "core/PartitionedGraph.hpp"
+#include "core/DeviceSubStructure.hpp"
 
 #include "ntsCPUFusedGraphOp.hpp"
 #include "ntsDistCPUGraphOp.hpp"
@@ -37,6 +24,7 @@ Copyright (c) 2021-2022 Qiange Wang, Northeastern University
 #include "ntsDistGPUFusedGraphOp.hpp"
 #include "ntsDistGPUGraphOp.hpp"
 #include "ntsSingleGPUFusedGraphOp.hpp"
+#include "ntsMultiGPUGraphOp.hpp"
 #endif
 //#include "ntsSubLinearNNOP.hpp"
 //#include "ntsNNOP.hpp"

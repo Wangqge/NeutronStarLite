@@ -11,19 +11,19 @@ public:
   ValueType epsilon;
   ValueType decay_rate;
   ValueType decay_epoch;
-  // graph
+  
   VertexSubset *active;
-  // graph with no edge data
+  
   Graph<Empty> *graph;
-  //std::vector<CSC_segment_pinned *> subgraphs;
-  // NN
+  
+  
   GNNDatum *gnndatum;
   NtsVar L_GT_C;
   NtsVar L_GT_G;
   NtsVar MASK;
-  //GraphOperation *gt;
+  
   PartitionedGraph *partitioned_graph;
-  // Variables
+  
   std::vector<Parameter *> P;
   std::vector<Parameter *> al;
   std::vector<Parameter *> ar;
@@ -55,7 +55,7 @@ public:
     active->fill();
 
     graph->init_gnnctx(graph->config->layer_string);
-    // rtminfo initialize
+    
     graph->init_rtminfo();
     graph->rtminfo->process_local = graph->config->process_local;
     graph->rtminfo->reduce_comm = graph->config->process_local;
@@ -72,7 +72,7 @@ public:
       return nts::op::nts_norm_degree(graph,src, dst);
     },CPU_T,true);
     graph->init_communicatior();
-    //cp = new nts::autodiff::ComputionPath(gt, subgraphs);
+    
     ctx=new nts::ctx::NtsContext();
   }
   void init_nn() {
@@ -88,7 +88,7 @@ public:
     epsilon = 1e-9;
     torch::manual_seed(0);
     GNNDatum *gnndatum = new GNNDatum(graph->gnnctx, graph);
-    // gnndatum->random_generate();
+    
     if (0 == graph->config->feature_file.compare("random")) {
       gnndatum->random_generate();
     } else {
@@ -97,12 +97,12 @@ public:
                                        graph->config->mask_file);
     }
 
-    // creating tensor to save Label and Mask
+    
     gnndatum->registLabel(L_GT_C);
     gnndatum->registMask(MASK);
 
-    // initializeing parameter. Creating tensor with shape [layer_size[i],
-    // layer_size[i + 1]]
+    
+    
     for (int i = 0; i < graph->gnnctx->layer_size.size() - 1; i++) {
       P.push_back(new Parameter(graph->gnnctx->layer_size[i],
                                 graph->gnnctx->layer_size[i + 1], alpha, beta1,
@@ -113,8 +113,8 @@ public:
                                 beta1, beta2, epsilon, weight_decay));
     }
 
-    // synchronize parameter with other processes
-    // because we need to guarantee all of workers are using the same model
+    
+    
     for (int i = 0; i < P.size(); i++) {
       P[i]->init_parameter();
       P[i]->set_decay(decay_rate, decay_epoch);
@@ -131,12 +131,12 @@ public:
 
       NtsVar d;
       X.resize(graph->gnnctx->layer_size.size(),d);
-    // X[0] is the initial vertex representation. We created it from
-    // local_feature
+    
+    
     X[0] = F;
   }
 
-  void Test(long s) { // 0 train, //1 eval //2 test
+  void Test(long s) { 
     NtsVar mask_train = MASK.eq(s);
     NtsVar all_train =
         X[graph->gnnctx->layer_size.size() - 1]
@@ -167,7 +167,7 @@ public:
     }
   }
   void Loss() {
-    //  return torch::nll_loss(a,L_GT_C);
+    
     torch::Tensor a = X[graph->gnnctx->layer_size.size() - 1].log_softmax(1);
     torch::Tensor mask_train = MASK.eq(0);
     loss = torch::nll_loss(
@@ -179,19 +179,19 @@ public:
 
   void Update() {
     for (int i = 0; i < P.size(); i++) {
-      // accumulate the gradient using all_reduce
+      
       P[i]->all_reduce_to_gradient(P[i]->W.grad().cpu());
-      // update parameters with Adam optimizer
+      
       P[i]->learnC2C_with_decay_Adam();
       P[i]->next();
       
       al[i]->all_reduce_to_gradient(al[i]->W.grad().cpu());
-      // update parameters with Adam optimizer
+      
       al[i]->learnC2C_with_decay_Adam();
       al[i]->next();
       
       ar[i]->all_reduce_to_gradient(ar[i]->W.grad().cpu());
-      // update parameters with Adam optimizer
+      
       ar[i]->learnC2C_with_decay_Adam();
       ar[i]->next();
     }
@@ -207,7 +207,7 @@ public:
         X[i]);
       
       NtsVar mirror= ctx->runGraphOp<nts::op::DistGetDepNbrOp>(partitioned_graph,active,X_trans);
-      //NtsVar edge_src= ctx->runGraphOp<nts::op::DistScatterSrc>(partitioned_graph,active,mirror);
+      
       NtsVar src_att=ctx->runVertexForward([&](NtsVar x_i_){
         int layer = graph->rtminfo->curr_layer;
         return al[layer]->forward(x_i_);
@@ -218,7 +218,7 @@ public:
         return ar[layer]->forward(x_i_);
       },
         X_trans);
-//      LOG_INFO("dst_att DATA_PTR %ld",(long)dst_att.data_ptr());
+
       NtsVar e_src_att= ctx->runGraphOp<nts::op::DistScatterSrc>(partitioned_graph,active,src_att);
       NtsVar e_dst_att= ctx->runGraphOp<nts::op::DistScatterDst>(partitioned_graph,active,dst_att);
       NtsVar e_msg=torch::cat({e_src_att,e_dst_att},1);
@@ -228,10 +228,10 @@ public:
             NtsVar s=e_msg_.sum(1).unsqueeze(-1);
             return torch::leaky_relu(s,0.2);
         },
-      e_msg);//edge NN
+      e_msg);
             
       NtsVar a=ctx->runGraphOp<nts::op::DistEdgeSoftMax>(partitioned_graph,
-              active,m);// edge NN   
+              active,m);
      NtsVar nbr= ctx->runGraphOp<nts::op::DistAggregateDstFuseWeight>(partitioned_graph,active,mirror,a); 
      X[i+1]=ctx->runVertexForward([&](NtsVar nbr_){
             return torch::relu(nbr_);
@@ -260,17 +260,17 @@ public:
       Forward();
       
       
-  //      printf("sizeof %d",sizeof(__m256i));
-//      printf("sizeof %d",sizeof(int));
+  
+
       Test(0);
       Test(1);
       Test(2);
       Loss();
       
       ctx->self_backward(true);
-//      LOG_INFO("FINISH BACKWARD");
+
       Update();
-      // ctx->debug();
+      
       if (graph->partition_id == 0)
         std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss
                   << std::endl;

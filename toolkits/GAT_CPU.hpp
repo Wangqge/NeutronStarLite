@@ -12,22 +12,22 @@ public:
   ValueType epsilon;
   ValueType decay_rate;
   ValueType decay_epoch;
-  // graph
+  
   VertexSubset *active;
   Graph<Empty> *graph;
-  //std::vector<CSC_segment_pinned *> subgraphs;
-  // NN
+  
+  
   GNNDatum *gnndatum;
   NtsVar L_GT_C;
   NtsVar L_GT_G;
   NtsVar MASK;
   std::map<std::string, NtsVar> I_data;
-  //GraphOperation *gt;
+  
   PartitionedGraph * partitioned_graph;
-  // Variables
+  
   std::vector<Parameter *> P;
   std::vector<NtsVar> X;
-  //nts::autodiff::ComputionPath *cp;
+  
   nts::ctx::NtsContext *ctx;
   NtsVar F;
   NtsVar loss;
@@ -54,7 +54,7 @@ public:
     active->fill();
 
     graph->init_gnnctx(graph->config->layer_string);
-    // rtminfo initialize
+    
     graph->init_rtminfo();
     graph->rtminfo->process_local = graph->config->process_local;
     graph->rtminfo->reduce_comm = graph->config->process_local;
@@ -65,24 +65,24 @@ public:
     graph->rtminfo->lock_free = graph->config->lock_free;
   }
   void init_graph() {
-    // std::vector<CSC_segment_pinned *> csc_segment;
-//    graph->generate_COO();
-//    graph->reorder_COO_W2W();
-    // generate_CSC_Segment_Tensor_pinned(graph, csc_segment, true);
     
-//    gt = new GraphOperation(graph, active);
-//    gt->GenerateGraphSegment(subgraphs, CPU_T, [&](VertexId src, VertexId dst) {
-//      return gt->norm_degree(src, dst);
-//    });
-//    // gt->GenerateMessageBitmap(subgraphs);
-//    gt->GenerateMessageBitmap_multisokects(subgraphs);
+
+
+    
+    
+
+
+
+
+
+
     partitioned_graph=new PartitionedGraph(graph, active);
     partitioned_graph->GenerateAll([&](VertexId src, VertexId dst) {
       return 1;
     },CPU_T);
     
     graph->init_communicatior();
-    //cp = new nts::autodiff::ComputionPath(gt, subgraphs, true);
+    
     ctx= new nts::ctx::NtsContext();
   }
   void init_nn() {
@@ -98,7 +98,7 @@ public:
     epsilon = 1e-9;
     torch::manual_seed(0);
     GNNDatum *gnndatum = new GNNDatum(graph->gnnctx, graph);
-    // gnndatum->random_generate();
+    
     if (0 == graph->config->feature_file.compare("random")) {
       gnndatum->random_generate();
     } else {
@@ -133,7 +133,7 @@ public:
     X[0] = F.set_requires_grad(true);
   }
 
-  void Test(long s) { // 0 train, //1 eval //2 test
+  void Test(long s) { 
     NtsVar mask_train = MASK.eq(s);
     NtsVar all_train =
         X[graph->gnnctx->layer_size.size() - 1]
@@ -164,7 +164,7 @@ public:
     }
   }
   void Loss() {
-    //  return torch::nll_loss(a,L_GT_C);
+    
     torch::Tensor a = X[graph->gnnctx->layer_size.size() - 1].log_softmax(1);
     torch::Tensor mask_train = MASK.eq(0);
     loss = torch::nll_loss(
@@ -197,31 +197,31 @@ public:
       graph->rtminfo->curr_layer = i;
       NtsVar X_trans=ctx->runVertexForward([&](NtsVar x_i){
             return preForward(x_i);},
-        X[i]);//pre apply    
+        X[i]);
       NtsVar E_msg=ctx->runGraphOp<nts::op::SingleCPUSrcDstScatterOp>(
-              partitioned_graph,active,X_trans);// scatterto edge
+              partitioned_graph,active,X_trans);
       
       NtsVar m=ctx->runEdgeForward([&](NtsVar e_msg){
             int layer = graph->rtminfo->curr_layer;
             return torch::leaky_relu(P[2 * layer + 1]->forward(e_msg),0.2);
         },
-      E_msg);//edge NN
+      E_msg);
         
       NtsVar a=ctx->runGraphOp<nts::op::SingleEdgeSoftMax>(partitioned_graph,
-              active,m);// edge NN   
+              active,m);
       
       NtsVar E_msg_out=ctx->runEdgeForward([&](NtsVar a){
             return E_msg.slice(1, 0, E_msg.size(1) / 2, 1)*a;
         },
-      a);//Edge NN 
+      a);
         
       NtsVar nbr=ctx->runGraphOp<nts::op::SingleCPUDstAggregateOp>(
-              partitioned_graph,active,E_msg_out);//agg  
+              partitioned_graph,active,E_msg_out);
       
       X[i+1]=ctx->runVertexForward([&](NtsVar nbr){
             return torch::relu(nbr);
         },nbr);
-    //        printf("hellow\n");
+    
     }
   }
 
@@ -241,42 +241,42 @@ public:
       Test(1);
       Test(2);
       Loss();
-//      ctx->debug();
-//       ctx->reset();
+
+
       ctx->self_backward(true);
       Update();
-      //     cp->debug();
+      
       if (graph->partition_id == 0)
         std::cout << "Nts::Running.Epoch[" << i_i << "]:loss\t" << loss
                   << std::endl;
     }
-//        NtsVar s=torch::rand({3,1});
-//        s[0][0]=1;
-//        s[1][0]=2;
-//        s[2][0]=3;
-//        NtsVar s1=torch::rand({3,1});
-//        s1[0][0]=2;
-//        s1[1][0]=3;
-//        s1[2][0]=4;
-//        s.set_requires_grad(true);
-//        s1.set_requires_grad(true);
-//        NtsVar s2=s.softmax(0);
-//        NtsVar s3=s2*s1;
-//        std::cout<<"s :\n"<<s<<std::endl;
-//        std::cout<<"s1:\n"<<s1<<std::endl;
-//        std::cout<<"s2:\n"<<s2<<std::endl;
-//        std::cout<<"s3:\n"<<s3<<std::endl;
-//        s3.backward(torch::ones_like(s3));
-//        std::cout<<"s.grad():\n"<<s.grad()<<std::endl;
-//        NtsVar s4=torch::zeros({3,1});
-//        s4=(s2*s1)-(s2)*(s2.t().mm(s1));        
-//    NtsVar s4=torch::rand({3,3});
-//        std::cout<<"s4.grad():\n"<<s4<<"\n"<<s4.sum(-1)<<std::endl;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     exec_time += get_time();
 
-    //    nts::OP::ntsOps  *nop=new nts::OP::ntsOps(graph,active);
-    //    nop->segmentReduce(X[0],subgraphs,0);
-    // nop.
+    
+    
+    
 
     delete active;
   }
